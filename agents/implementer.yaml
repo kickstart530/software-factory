@@ -1,0 +1,10 @@
+name: implementer
+version: 1
+description: Implements one task, with tests, on its own branch.
+model_tier: frontier
+system_prompt: prompts/implementer.md
+tools: [read_file, write_file, edit_file, list_files, search_code, run_command, escalate, submit_result]
+budget: {tokens: 4000000, usd: 25, wall_clock_s: 2700, turns: 150, tool_calls: 400}
+gates: [build, unit_tests, lint, secret_scan]
+max_gate_attempts: 3
+output_schema: ImplementationResult

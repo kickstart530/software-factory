@@ -12,6 +12,16 @@ harness is built first and every agent is built on it.
 
 ---
 
+## Implementation status
+
+| Phase | State | What exists |
+|---|---|---|
+| 0. Foundations | **Done (repo side)** | ADR-0001..0008 in [`docs/adr/`](adr/); core contracts in `factory/schemas.py`, exported to `schemas/`; CI workflow. Cloud IaC is still to do. |
+| 1. Harness MVP | **Core done** | `factory/harness/`: agent loop, tool registry and sandbox tools, policy, hooks, gates, budgets, checkpoints/resume, escalation, telemetry, model client. 50 tests on a scripted model. Still to do: golden task set, replay runner, OTel exporter. |
+| 2. Core pipeline | Started | In-process Supervisor (`factory/orchestrator.py`) and definitions for planner, implementer, reviewer and integrator. Still to do: Temporal, GitHub App, tool gateway, approvals. |
+
+---
+
 ## 1. Goals and non-goals
 
 **Goals**
@@ -112,18 +122,17 @@ equivalent agent loop, and add the factory-specific capabilities below.
 Agents are declared, versioned and reviewed like code:
 
 ```yaml
-# agents/implementer.yaml
+# agents/implementer.yaml  (live file - see agents/)
 name: implementer
-version: 3
-model_tier: frontier          # resolved by the Model Gateway
+version: 1
+description: Implements one task, with tests, on its own branch.
+model_tier: frontier          # resolved via config/models.yaml
 system_prompt: prompts/implementer.md
-tools: [fs.read, fs.edit, shell.exec, git.commit, code_search, memory.query, escalate]
-mcp_servers: [git-host, ci]
-policy: policies/implementer.rego
-budget: { tokens: 2_000_000, usd: 15, wall_clock: 45m, turns: 150 }
-gates: [build, unit_tests, lint, typecheck, secret_scan]
-output_schema: schemas/implementation_result.json
-sub_agents: [code_explorer, test_runner]
+tools: [read_file, write_file, edit_file, list_files, search_code, run_command, escalate, submit_result]
+budget: {tokens: 4000000, usd: 25, wall_clock_s: 2700, turns: 150, tool_calls: 400}
+gates: [build, unit_tests, lint, secret_scan]   # commands come from the repo's .factory/gates.yaml
+max_gate_attempts: 3
+output_schema: ImplementationResult
 ```
 
 ---
@@ -263,34 +272,45 @@ cause filed as a harness, prompt, tool or policy fix.
 
 ---
 
-## 11. Proposed repository layout
+## 11. Repository layout
+
+What exists today, then what each later phase adds.
 
 ```
 software-factory/
 ├── docs/
 │   ├── IMPLEMENTATION_PLAN.md      # this document
-│   └── adr/                        # architecture decision records
-├── harness/                        # agent runtime: loop, context, tools, hooks, budgets, checkpoints
+│   └── adr/                        # architecture decision records (0001-0008)
+├── factory/
+│   ├── schemas.py                  # WorkOrder, Task, TaskDAG, TaskResult, agent outputs
+│   ├── agents/spec.py              # AgentSpec + AgentCatalog (loads agents/*.yaml)
+│   ├── harness/
+│   │   ├── loop.py                 # AgentHarness: the agent loop and its invariants
+│   │   ├── tools.py                # tool registry, sandbox tools, submit_result
+│   │   ├── policy.py               # RulePolicy (OPA-replaceable)
+│   │   ├── hooks.py                # pre/post tool hooks: secret guard, redaction
+│   │   ├── gates.py                # verification gates (.factory/gates.yaml)
+│   │   ├── budget.py               # budget tracker + pricing
+│   │   ├── checkpoint.py           # per-turn checkpoints, resume
+│   │   ├── model.py                # ModelClient, Anthropic client, scripted client
+│   │   └── telemetry.py            # run events (JSONL; OTel exporter later)
+│   ├── orchestrator.py             # in-process Supervisor (Temporal in Phase 2)
+│   └── cli.py                      # `factory run | answer | agents validate | schemas export`
 ├── agents/                         # declarative agent definitions (*.yaml) + prompts/
-├── schemas/                        # JSON schemas: WorkOrder, TaskDAG, results, reports
-├── policies/                       # OPA/Rego policies per role and risk tier
-├── orchestrator/                   # Temporal workflows & activities, Supervisor
-├── gateways/
-│   ├── model/                      # routing, fallback, caching, quotas
-│   └── tools/                      # MCP servers / adapters (git host, CI, tracker, cloud)
-├── services/
-│   ├── memory/                     # indexing + retrieval
-│   ├── approvals/                  # human-in-the-loop API + Slack/GitHub integration
-│   └── budget-ledger/
-├── sandbox/                        # base images, runtime class, egress proxy config
-├── evals/                          # golden tasks, scenario & adversarial suites, runners
-├── infra/                          # Terraform + Helm/Argo CD
-└── .github/workflows/              # CI incl. factory-eval
+├── config/models.yaml              # tier -> model/effort routing, pricing
+├── schemas/                        # exported JSON schemas (CI checks they are in sync)
+├── .factory/gates.yaml             # this repo's own gates (the factory dogfoods itself)
+├── tests/
+└── .github/workflows/ci.yml
 ```
 
-**Suggested stack:** Python 3.12 for harness, orchestrator and agents (Claude
-Agent SDK, Temporal Python SDK, Pydantic for schemas); Go or Python for the
-gateways; TypeScript only for the approval UI.
+Later phases add `gateways/` (model, tools/MCP), `services/` (memory, approvals,
+budget ledger), `sandbox/` (images, runtime class, egress proxy), `evals/`
+(golden, scenario and adversarial suites) and `infra/` (Terraform, Helm/Argo CD).
+
+**Stack:** Python 3.12+ for the harness, orchestrator and agents (Anthropic SDK,
+Pydantic, Temporal Python SDK from Phase 2); Go or Python for the gateways;
+TypeScript only for the approval UI.
 
 ---
 
@@ -310,7 +330,9 @@ gateways; TypeScript only for the approval UI.
 
 ## 13. Immediate next steps
 
-1. Write ADR-0001..0008 capturing AD-1..AD-8 (Phase 0).
-2. Define the `WorkOrder`, `Task`, `TaskDAG` and `*Result` JSON schemas. Everything else depends on them.
-3. Stand up the sandbox runtime and egress proxy, then prove isolation with a red-team test.
-4. Build the harness MVP and the first 50 golden tasks **in parallel**. The eval suite is how we'll know the harness works.
+Done: ADR-0001..0008, the core schemas, and the harness MVP core.
+
+1. **Golden task set + replay runner** (`evals/`): 50 historical tasks with hidden tests, run through `factory run`, scored by gate pass rate, cost and turns. This is the Phase 1 exit test.
+2. **Sandbox runtime + egress proxy**: package the harness as a container image, run it under gVisor on Kubernetes, and prove isolation with a red-team test.
+3. **OpenTelemetry exporter** for the `Tracer` interface, plus transcript storage in object storage.
+4. **Phase 2 start**: move the Supervisor into Temporal, and add the GitHub App and an MCP tool gateway.

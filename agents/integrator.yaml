@@ -1,0 +1,10 @@
+name: integrator
+version: 1
+description: Keeps a PR mergeable - resolves conflicts and root-causes CI failures.
+model_tier: mid
+system_prompt: prompts/integrator.md
+tools: [read_file, write_file, edit_file, list_files, search_code, run_command, escalate, submit_result]
+budget: {tokens: 2000000, usd: 10, wall_clock_s: 1800, turns: 100}
+gates: [build, unit_tests, lint, secret_scan]
+max_gate_attempts: 2
+output_schema: IntegrationResult

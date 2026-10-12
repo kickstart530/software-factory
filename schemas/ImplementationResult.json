@@ -1,0 +1,46 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "summary": {
+      "minLength": 1,
+      "title": "Summary",
+      "type": "string"
+    },
+    "files_changed": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Files Changed",
+      "type": "array"
+    },
+    "tests_added": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Tests Added",
+      "type": "array"
+    },
+    "criteria_met": {
+      "items": {
+        "maxLength": 128,
+        "minLength": 1,
+        "pattern": "^[A-Za-z0-9._-]+$",
+        "type": "string"
+      },
+      "title": "Criteria Met",
+      "type": "array"
+    },
+    "follow_ups": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Follow Ups",
+      "type": "array"
+    }
+  },
+  "required": [
+    "summary"
+  ],
+  "title": "ImplementationResult",
+  "type": "object"
+}

@@ -1,0 +1,219 @@
+{
+  "$defs": {
+    "AcceptanceCriterion": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "description": {
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "verification": {
+          "default": "gate",
+          "enum": [
+            "gate",
+            "review",
+            "human"
+          ],
+          "title": "Verification",
+          "type": "string"
+        },
+        "gate": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Gate name when verification == 'gate'.",
+          "title": "Gate"
+        }
+      },
+      "required": [
+        "id",
+        "description"
+      ],
+      "title": "AcceptanceCriterion",
+      "type": "object"
+    },
+    "Budget": {
+      "additionalProperties": false,
+      "description": "Hard caps for one task or Work Order. ``None`` means uncapped.",
+      "properties": {
+        "tokens": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tokens"
+        },
+        "usd": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Usd"
+        },
+        "wall_clock_s": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Wall Clock S"
+        },
+        "turns": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Turns"
+        },
+        "tool_calls": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool Calls"
+        },
+        "soft_limit_ratio": {
+          "default": 0.8,
+          "description": "Fraction of a cap at which the agent is warned.",
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "title": "Soft Limit Ratio",
+          "type": "number"
+        }
+      },
+      "title": "Budget",
+      "type": "object"
+    },
+    "RepoRef": {
+      "additionalProperties": false,
+      "properties": {
+        "url": {
+          "title": "Url",
+          "type": "string"
+        },
+        "base_branch": {
+          "default": "main",
+          "title": "Base Branch",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "title": "RepoRef",
+      "type": "object"
+    },
+    "RiskTier": {
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "title": "RiskTier",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "A unit of intent approved by a human: what to build and how we'll know it's done.",
+  "properties": {
+    "id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9._-]+$",
+      "title": "Id",
+      "type": "string"
+    },
+    "title": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Title",
+      "type": "string"
+    },
+    "description": {
+      "title": "Description",
+      "type": "string"
+    },
+    "repo": {
+      "$ref": "#/$defs/RepoRef"
+    },
+    "acceptance_criteria": {
+      "items": {
+        "$ref": "#/$defs/AcceptanceCriterion"
+      },
+      "minItems": 1,
+      "title": "Acceptance Criteria",
+      "type": "array"
+    },
+    "risk_tier": {
+      "$ref": "#/$defs/RiskTier",
+      "default": "low"
+    },
+    "budget": {
+      "$ref": "#/$defs/Budget"
+    },
+    "requested_by": {
+      "title": "Requested By",
+      "type": "string"
+    },
+    "labels": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Labels",
+      "type": "array"
+    }
+  },
+  "required": [
+    "id",
+    "title",
+    "description",
+    "repo",
+    "acceptance_criteria",
+    "requested_by"
+  ],
+  "title": "WorkOrder",
+  "type": "object"
+}

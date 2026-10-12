@@ -1,0 +1,26 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "summary": {
+      "title": "Summary",
+      "type": "string"
+    },
+    "root_cause": {
+      "title": "Root Cause",
+      "type": "string"
+    },
+    "commits": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Commits",
+      "type": "array"
+    }
+  },
+  "required": [
+    "summary",
+    "root_cause"
+  ],
+  "title": "IntegrationResult",
+  "type": "object"
+}
