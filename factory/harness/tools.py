@@ -23,6 +23,11 @@ MAX_OUTPUT_CHARS = 20_000
 SAFE_ENV_KEYS = ("PATH", "HOME", "LANG", "LC_ALL", "TERM", "TMPDIR", "VIRTUAL_ENV")
 
 
+def sandbox_env(extra: dict[str, str] | None = None) -> dict[str, str]:
+    """A minimal environment for agent-influenced commands: never the harness's credentials."""
+    return {k: os.environ[k] for k in SAFE_ENV_KEYS if k in os.environ} | (extra or {})
+
+
 class ToolInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -242,12 +247,11 @@ class RunCommandInput(ToolInput):
 
 
 def _run_command(ctx: ToolContext, a: RunCommandInput) -> ToolOutput:
-    env = {k: os.environ[k] for k in SAFE_ENV_KEYS if k in os.environ} | ctx.env
     try:
         proc = subprocess.run(
             ["bash", "-lc", a.command],
             cwd=ctx.workspace,
-            env=env,
+            env=sandbox_env(ctx.env),
             capture_output=True,
             text=True,
             timeout=a.timeout_s or ctx.command_timeout_s,

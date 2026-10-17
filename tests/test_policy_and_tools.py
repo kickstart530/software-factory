@@ -101,3 +101,26 @@ def test_budget_soft_then_exceeded():
     assert b.state() == (BudgetState.EXCEEDED, "turns")
     assert b.usage.usd == pytest.approx(3.0)
     del clock
+
+
+def test_gates_do_not_see_harness_credentials(tmp_path: Path, monkeypatch):
+    from factory.harness.gates import GateCommand, GateRunner
+
+    key = "sk-ant-" + "x" * 30
+    monkeypatch.setenv("ANTHROPIC_API_KEY", key)
+    runner = GateRunner(
+        {
+            "leak_env": GateCommand(command="env"),
+            "leak_echo": GateCommand(command=f"echo {key}"),
+        }
+    )
+    env_out, echo_out = runner.run(["leak_env", "leak_echo"], tmp_path)
+    assert "ANTHROPIC_API_KEY" not in env_out.output_tail
+    assert key not in echo_out.output_tail and "REDACTED" in echo_out.output_tail
+
+
+def test_run_command_does_not_see_harness_credentials(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-" + "y" * 30)
+    c = ToolContext(workspace=tmp_path, artifacts_dir=tmp_path / "art")
+    out = TOOLS["run_command"].invoke(c, {"command": "env"})
+    assert "ANTHROPIC_API_KEY" not in out.content

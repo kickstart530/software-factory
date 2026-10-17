@@ -9,6 +9,8 @@ are defined per repository in ``.factory/gates.yaml``::
       lint: {command: "ruff check ."}
 
 A gate an agent requires but the repository does not define fails closed.
+Gate commands run code the agent may have written, so they get the same minimal
+environment as ``run_command`` and their output is redacted before the agent sees it.
 """
 
 from __future__ import annotations
@@ -21,7 +23,8 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
-from factory.harness.hooks import find_secrets
+from factory.harness.hooks import find_secrets, redact_secrets
+from factory.harness.tools import sandbox_env
 from factory.schemas import GateResult
 
 TAIL_CHARS = 4000
@@ -107,6 +110,7 @@ class GateRunner:
             proc = subprocess.run(
                 ["bash", "-lc", gate.command],
                 cwd=workspace,
+                env=sandbox_env(),
                 capture_output=True,
                 text=True,
                 timeout=gate.timeout_s,
@@ -123,6 +127,6 @@ class GateRunner:
             name=name,
             passed=proc.returncode == 0,
             exit_code=proc.returncode,
-            output_tail=output[-TAIL_CHARS:],
+            output_tail=redact_secrets(output)[-TAIL_CHARS:],
             duration_s=time.monotonic() - start,
         )
