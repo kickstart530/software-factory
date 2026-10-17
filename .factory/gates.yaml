@@ -1,0 +1,10 @@
+# Verification gates for this repository (see factory/harness/gates.py).
+# The factory dogfoods itself: agents working on this repo must pass these.
+gates:
+  build:
+    command: "python -m compileall -q factory"
+  unit_tests:
+    command: "python -m pytest -q"
+    timeout_s: 900
+  lint:
+    command: "ruff check . && ruff format --check ."

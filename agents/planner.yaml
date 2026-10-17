@@ -1,0 +1,9 @@
+name: planner
+version: 1
+description: Breaks an approved Work Order into small, independently verifiable tasks.
+model_tier: frontier
+system_prompt: prompts/planner.md
+tools: [read_file, list_files, search_code, escalate, submit_result]
+budget: {tokens: 1500000, usd: 10, wall_clock_s: 1800, turns: 60}
+gates: []
+output_schema: PlanResult

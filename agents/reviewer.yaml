@@ -1,0 +1,9 @@
+name: reviewer
+version: 1
+description: Reviews a change for correctness, design and maintainability; never reviews its own work.
+model_tier: frontier
+system_prompt: prompts/reviewer.md
+tools: [read_file, list_files, search_code, run_command, escalate, submit_result]
+budget: {tokens: 2000000, usd: 12, wall_clock_s: 1800, turns: 80}
+gates: []
+output_schema: ReviewReport
