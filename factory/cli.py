@@ -17,6 +17,7 @@ from factory.harness import (
     ModelConfig,
     ToolContext,
 )
+from factory.harness.model import MissingCredentialsError
 from factory.schemas import EXPORTED_SCHEMAS, RiskTier, Task
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -57,6 +58,18 @@ def _harness(args: argparse.Namespace, task: Task) -> AgentHarness:
     )
 
 
+def _with_credentials(func):
+    def wrapper(args: argparse.Namespace) -> int:
+        try:
+            return func(args)
+        except MissingCredentialsError as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 2
+
+    return wrapper
+
+
+@_with_credentials
 def cmd_run(args: argparse.Namespace) -> int:
     task = Task.model_validate_json(Path(args.task).read_text())
     result = _harness(args, task).run(task)
@@ -64,6 +77,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     return 0 if result.status == "succeeded" else 1
 
 
+@_with_credentials
 def cmd_answer(args: argparse.Namespace) -> int:
     task = Task.model_validate_json(Path(args.task).read_text())
     result = _harness(args, task).answer_escalation(task, args.answer)

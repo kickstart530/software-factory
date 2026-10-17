@@ -60,3 +60,47 @@ def test_request_shape(model_config):
     assert kw["tools"][0]["eager_input_streaming"] is True
     assert "eager_input_streaming" not in tool  # caller's definition untouched
     assert resp.text() == "hi" and resp.cache_read_tokens == 5
+
+
+def test_api_key_read_from_env():
+    import pytest
+
+    from factory.harness.model import MissingCredentialsError, api_key_from_env
+
+    assert api_key_from_env({"ANTHROPIC_API_KEY": " sk-ant-abc \n"}) == "sk-ant-abc"
+    with pytest.raises(MissingCredentialsError, match="secrets.ANTHROPIC_API_KEY"):
+        api_key_from_env({})
+    with pytest.raises(MissingCredentialsError):
+        api_key_from_env({"ANTHROPIC_API_KEY": "  "})
+
+
+def test_client_built_from_env(model_config, monkeypatch):
+    import anthropic
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-key")
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://gateway.example")
+    client = AnthropicModelClient(model_config)
+    assert isinstance(client.client, anthropic.Anthropic)
+    assert client.client.api_key == "sk-ant-test-key"
+    assert str(client.client.base_url).startswith("https://gateway.example")
+
+
+def test_cli_run_without_key_fails_clearly(tmp_path, monkeypatch, capsys):
+    from factory.cli import main
+    from tests.conftest import make_task
+
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    task = tmp_path / "task.json"
+    task.write_text(make_task().model_dump_json())
+    code = main(
+        [
+            "run",
+            "--task",
+            str(task),
+            "--workspace",
+            str(tmp_path),
+            "--state-dir",
+            str(tmp_path / "state"),
+        ]
+    )
+    assert code == 2 and "ANTHROPIC_API_KEY is not set" in capsys.readouterr().err

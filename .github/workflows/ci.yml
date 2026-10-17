@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -24,3 +25,26 @@ jobs:
         run: factory agents validate
       - name: Tests
         run: pytest -q
+
+  # One real API round trip through the harness's model client. Runs on main and
+  # on demand only, so PRs (including forks, which get no secrets) don't spend.
+  live-smoke:
+    needs: test
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: pip install -e ".[dev]"
+      - name: Live smoke test
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "::error::ANTHROPIC_API_KEY secret is not set for this repository"
+            exit 1
+          fi
+          pytest -q -m live

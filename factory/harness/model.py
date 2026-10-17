@@ -9,6 +9,7 @@ as received.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
@@ -69,6 +70,25 @@ class ModelClient(Protocol):
     def complete(self, request: ModelRequest) -> ModelResponse: ...
 
 
+API_KEY_ENV = "ANTHROPIC_API_KEY"
+BASE_URL_ENV = "ANTHROPIC_BASE_URL"  # set to the Model Gateway in the cloud deployment
+
+
+class MissingCredentialsError(RuntimeError):
+    pass
+
+
+def api_key_from_env(env: dict[str, str] | None = None) -> str:
+    """The API key the harness uses: ``ANTHROPIC_API_KEY`` (a GitHub Actions secret in CI)."""
+    key = (env if env is not None else os.environ).get(API_KEY_ENV, "").strip()
+    if not key:
+        raise MissingCredentialsError(
+            f"{API_KEY_ENV} is not set. Export it locally, or in GitHub Actions map the "
+            f"repository secret into the step: env: {API_KEY_ENV}: ${{{{ secrets.{API_KEY_ENV} }}}}"
+        )
+    return key
+
+
 class AnthropicModelClient:
     """Claude via the Messages API: streaming, adaptive thinking, refusal fallbacks."""
 
@@ -78,7 +98,9 @@ class AnthropicModelClient:
         if client is None:
             import anthropic
 
-            client = anthropic.Anthropic()
+            client = anthropic.Anthropic(
+                api_key=api_key_from_env(), base_url=os.environ.get(BASE_URL_ENV) or None
+            )
         self.client = client
         self.config = config
         self.max_tokens = max_tokens

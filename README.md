@@ -17,9 +17,11 @@ factory agents validate        # check agents/*.yaml
 factory schemas export         # regenerate schemas/ after editing factory/schemas.py
 ```
 
-Run one task against a checkout (needs Anthropic API credentials):
+Run one task against a checkout. The model client reads `ANTHROPIC_API_KEY`
+(and optionally `ANTHROPIC_BASE_URL`, for the Model Gateway) from the environment:
 
 ```bash
+export ANTHROPIC_API_KEY=...
 factory run --task task.json --workspace path/to/repo
 # if the agent escalates:
 factory answer --task task.json --workspace path/to/repo --answer "..."
@@ -28,6 +30,20 @@ factory answer --task task.json --workspace path/to/repo --answer "..."
 `task.json` is a `Task` (see `schemas/Task.json`). The target repo defines its
 gate commands in `.factory/gates.yaml`; see this repo's own file for an example.
 Checkpoints, traces and spilled tool output go to `.factory-runs/`.
+
+## GitHub Actions
+
+The repository secret `ANTHROPIC_API_KEY` is mapped into the steps that need it:
+
+- **`ci` / `live-smoke`**: one real API round trip (`pytest -m live`) on pushes to
+  `main` and manual runs. Pull requests skip it, so they don't spend and fork PRs
+  (which get no secrets) still pass.
+- **`factory-run`**: manual workflow that runs `factory run` for a Task JSON file
+  in this repo and uploads traces and checkpoints as an artifact.
+
+The key is only read by the harness's model client. Agent shell commands and
+verification gates run with a minimal environment that excludes it, and tool
+and gate output is scanned for credentials and redacted before the model sees it.
 
 ## Layout
 
