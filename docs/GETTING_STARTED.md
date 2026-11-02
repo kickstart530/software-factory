@@ -29,14 +29,18 @@ Software Factory is under active development. Here's what exists today:
 - ✅ Telemetry (JSONL traces; OpenTelemetry exporter planned)
 - ✅ 50+ harness tests on a scripted model (no API key needed)
 
-### Phase 2a: Core Pipeline (In Progress)
+### Phase 2a: Core Pipeline (Complete)
 - ✅ In-process Supervisor (`factory/orchestrator.py`)
 - ✅ Agent definitions: `planner`, `implementer`, `reviewer`, `integrator`
-- ✅ **Temporal orchestration**: first slice landed (see [TEMPORAL_INTEGRATION.md](TEMPORAL_INTEGRATION.md))
-- ✅ **GitHub App integration**: webhook receiver and API client implemented (see [GITHUB_APP_SETUP.md](GITHUB_APP_SETUP.md))
-- 🚧 **Temporal cluster infrastructure**: deployment manifests and ops guides (PR #7 - in review)
-- 🚧 **Sandbox pods**: Kubernetes spawner with credential isolation (PR #8 - in review)
-- ⏳ **Phase 2b**: Policy engine (OPA) and human approval service (PR #9 - in review)
+- ✅ **Temporal orchestration**: workflow and activity definitions (see [TEMPORAL_INTEGRATION.md](TEMPORAL_INTEGRATION.md))
+- ✅ **GitHub App integration**: webhook receiver and API client (see [GITHUB_APP_SETUP.md](GITHUB_APP_SETUP.md))
+- ✅ **Temporal cluster infrastructure**: deployment manifests and ops guides (see [infra/temporal/README.md](../infra/temporal/README.md), [docs/ops/TEMPORAL_OPERATIONS.md](ops/TEMPORAL_OPERATIONS.md))
+- ✅ **Sandbox pods**: Kubernetes spawner with credential isolation (see [factory/sandbox/README.md](../factory/sandbox/README.md))
+
+### Phase 2b: Policy and Approvals (Complete)
+- ✅ **Policy engine**: OPA-based policy evaluation for tool calls and risk assessment
+- ✅ **Human approval workflow**: CLI-based approval service with Slack notifications
+- ✅ **Risk tier computation**: Path-based and change-based risk scoring
 
 **Architecture approach:** CLI-first for external tools and near-term development. MCP was evaluated but deferred in favor of CLI-based tool integration (see [ADR-0006](adr/0006-tool-gateway-cli-first.md)).
 
@@ -52,7 +56,7 @@ Software Factory is under active development. Here's what exists today:
 **For production deployment (not needed for local development):**
 - Kubernetes cluster with gVisor or Kata Containers support
 - Temporal server (Cloud or self-hosted)
-- See upcoming guides in PRs #7 (Temporal cluster) and #8 (sandbox pods)
+- See deployment guides: [`infra/temporal/README.md`](../infra/temporal/README.md), [`factory/sandbox/README.md`](../factory/sandbox/README.md), [`infra/workers/README.md`](../infra/workers/README.md)
 
 ### Installation
 
@@ -195,12 +199,12 @@ The Supervisor (orchestrator) schedules ready tasks in parallel and enforces the
 }
 ```
 
-**Coming soon:** Automated Work Order intake via:
-- **GitHub issues**: Webhook receiver implemented (see [GITHUB_APP_SETUP.md](GITHUB_APP_SETUP.md)); end-to-end integration requires Temporal cluster (PR #7)
-- **Slack commands**: Planned for Phase 2b
+**Production deployment:** Automated Work Order intake via:
+- **GitHub issues**: Webhook receiver implemented (see [GITHUB_APP_SETUP.md](GITHUB_APP_SETUP.md)); requires deployed Temporal cluster (see [`infra/temporal/README.md`](../infra/temporal/README.md))
+- **Slack notifications**: Human approval workflow includes Slack integration (Phase 2b)
 - **Web UI or API**: Planned for later phases
 
-Once the infrastructure is deployed, the Supervisor will automatically decompose Work Orders into a TaskDAG using the `planner` agent and schedule execution across the worker pool.
+Once deployed, the Supervisor automatically decomposes Work Orders into a TaskDAG using the `planner` agent and schedules execution across the worker pool.
 
 ## Phases and Gates
 
@@ -255,7 +259,7 @@ escalate(
 
 The harness checkpoints the state and waits. A human answers via `factory answer`, and the task resumes.
 
-### Risk Tiers and Approval Gates (Planned)
+### Risk Tiers and Approval Gates
 
 Risk tiers determine approval requirements:
 
@@ -263,7 +267,7 @@ Risk tiers determine approval requirements:
 - **Medium risk**: One human approval required
 - **High risk**: Two human approvals + architect sign-off
 
-Risk is computed from the paths touched (auth, payments, infra), diff size, and dependency changes.
+Risk is computed from the paths touched (auth, payments, infra), diff size, and dependency changes. The policy engine uses OPA rules for evaluation, with Slack-based approval workflows for medium/high-risk changes.
 
 ## How the Pieces Fit
 
@@ -332,15 +336,15 @@ The Supervisor owns a Work Order end-to-end:
 - In-process implementation: `factory/orchestrator.py` (runs locally via CLI)
 - Temporal workflow definitions: `factory/temporal_supervisor.py` (see [TEMPORAL_INTEGRATION.md](TEMPORAL_INTEGRATION.md))
 
-**Requires infrastructure:**
-- Production Temporal cluster and worker pool (PR #7 - coming soon)
-- Sandbox pod spawning for isolated task execution (PR #8 - coming soon)
+**For production deployment:**
+- Temporal cluster and worker pool (see [`infra/temporal/README.md`](../infra/temporal/README.md), [`infra/workers/README.md`](../infra/workers/README.md))
+- Sandbox pod spawning for isolated task execution (see [`factory/sandbox/README.md`](../factory/sandbox/README.md))
 
 ### Sandboxes
 
-**Current state (local development):** The harness tools execute in the same process as the CLI. Suitable for development and testing on your local machine.
+**Local development:** The harness tools execute in the same process as the CLI. Suitable for development and testing on your local machine.
 
-**Coming soon (production deployment):** Each task will run in an ephemeral Kubernetes pod (PR #8):
+**Production deployment:** Each task runs in an ephemeral Kubernetes pod with full isolation:
 - Clean HOME directory (no host credentials accessible)
 - gVisor runtime for user-space kernel isolation
 - Network policies with egress control (deny-all default)
@@ -348,20 +352,23 @@ The Supervisor owns a Work Order end-to-end:
 - CPU, memory, and disk quotas
 - Automatic cleanup after task completion
 
-This provides blast-radius isolation: a task cannot affect other tasks, access host credentials, or make unauthorized network connections. See the upcoming `factory/sandbox/README.md` for the full security model.
+This provides blast-radius isolation: a task cannot affect other tasks, access host credentials, or make unauthorized network connections. See [`factory/sandbox/README.md`](../factory/sandbox/README.md) for the full security model and deployment guide.
 
 ## Further Reading
 
-### Available Now
+### Core Documentation
 - **[Implementation Plan](IMPLEMENTATION_PLAN.md)**: Full architecture, roadmap, agent roster, cloud platform, risks
 - **[Architecture Decision Records](adr/README.md)**: Why we chose durable workflows, ephemeral sandboxes, typed artifacts, git source-of-truth, CLI-first tools, policy-as-code, and deterministic gates
+
+### Integration Guides
 - **[Temporal Integration](TEMPORAL_INTEGRATION.md)**: How Temporal workflows orchestrate the task DAG, checkpoints, and human approvals
 - **[GitHub App Setup](GITHUB_APP_SETUP.md)**: Installing and configuring the webhook receiver for Work Order intake
 
-### Upcoming (in open PRs)
-- **Temporal Operations Guide**: Production cluster deployment and monitoring (PR #7)
-- **Sandbox Deployment Guide**: Kubernetes pod spawning with credential isolation (PR #8)
-- **Phase 2b Integration**: Policy engine (OPA) and human approval workflows (PR #9)
+### Operations and Deployment
+- **[Temporal Operations Guide](ops/TEMPORAL_OPERATIONS.md)**: Production cluster deployment and monitoring
+- **[Temporal Infrastructure](../infra/temporal/README.md)**: Kubernetes manifests and configuration for Temporal cluster
+- **[Worker Deployment](../infra/workers/README.md)**: Temporal worker pool deployment
+- **[Sandbox Deployment Guide](../factory/sandbox/README.md)**: Kubernetes pod spawning with credential isolation and security model
 
 ## Development Workflow
 
@@ -391,19 +398,21 @@ This provides blast-radius isolation: a task cannot affect other tasks, access h
 - ✅ GitHub App webhook receiver (can run with ngrok for local testing)
 
 ### Requires Kubernetes + Temporal (production deployment)
-- ⏳ **Temporal cluster**: Production-grade workflow orchestration with persistence
-  - *Coming in PR #7*: Kubernetes manifests, operations guide
-  - *See upcoming*: `infra/temporal/README.md`, `docs/ops/TEMPORAL_OPERATIONS.md`
-- ⏳ **Sandbox pods**: Isolated task execution with credential separation
-  - *Coming in PR #8*: `SandboxSpawner`, Kubernetes NetworkPolicy, gVisor runtime
-  - *See upcoming*: `factory/sandbox/README.md` for security model and deployment
-- ⏳ **Worker pool**: Autoscaling Temporal workers that spawn sandbox pods
-- ⏳ **End-to-end pipeline**: Work Order → TaskDAG → parallel execution → merged PR
+- ✅ **Temporal cluster**: Production-grade workflow orchestration with persistence
+  - Kubernetes manifests and Kustomize overlays available in [`infra/temporal/`](../infra/temporal/README.md)
+  - Operations guide: [`docs/ops/TEMPORAL_OPERATIONS.md`](ops/TEMPORAL_OPERATIONS.md)
+- ✅ **Sandbox pods**: Isolated task execution with credential separation
+  - `SandboxSpawner`, Kubernetes NetworkPolicy, gVisor runtime
+  - Security model and deployment: [`factory/sandbox/README.md`](../factory/sandbox/README.md)
+- ✅ **Worker pool**: Autoscaling Temporal workers that spawn sandbox pods
+  - Deployment manifests: [`infra/workers/README.md`](../infra/workers/README.md)
+- ✅ **Policy engine**: OPA-based policy evaluation and human approval workflows
+- 🚧 **End-to-end integration**: Work Order → TaskDAG → parallel execution → merged PR (integration in progress)
 
-### Current Development Workflow
+### Development Workflow
 The factory is **CLI-first**: all core functionality works locally without Kubernetes or Temporal. The in-process Supervisor (`factory/orchestrator.py`) provides the same TaskDAG execution logic that will run in Temporal workflows. This enables rapid iteration and testing without infrastructure dependencies.
 
-**Production deployment** (Kubernetes + Temporal + sandboxes) is integration work after the Phase 2a components land.
+**Production deployment** is now possible: all Phase 2a infrastructure components (Temporal cluster, sandbox pods, worker pool) and Phase 2b policy/approval components have deployment guides and manifests. End-to-end integration of the full pipeline is ongoing.
 
 ---
 
