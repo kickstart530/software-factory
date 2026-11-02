@@ -1,24 +1,37 @@
 """Tests for OpenTelemetry tracer."""
 
-import importlib.util
-
 import pytest
 
-from factory.harness.telemetry import OtelTracer
+from factory.harness.telemetry import JsonlTracer, OtelTracer
 
 
-def test_otel_tracer_requires_sdk():
-    """OtelTracer raises ImportError when OpenTelemetry SDK is not installed."""
-    if importlib.util.find_spec("opentelemetry") is not None:
-        pytest.skip("OpenTelemetry is installed; this test requires it to be missing")
-    with pytest.raises(ImportError, match="OpenTelemetry SDK not installed"):
-        OtelTracer()
+def test_jsonl_tracer_fallback(tmp_path):
+    """JsonlTracer works as fallback when OTel is not available."""
+    path = tmp_path / "traces.jsonl"
+    tracer = JsonlTracer(path, task_id="T1")
+
+    tracer.event("task.started", agent="test")
+    tracer.event("model.call", model="test-model", input_tokens=100)
+    tracer.event("tool.call", tool="read_file", is_error=False)
+    tracer.event("task.finished", status="succeeded")
+
+    assert path.exists()
+    lines = path.read_text().strip().split("\n")
+    assert len(lines) == 4
+
+    import json
+
+    for line in lines:
+        record = json.loads(line)
+        assert "ts" in record
+        assert "event" in record
+        assert "task_id" in record
+        assert record["task_id"] == "T1"
 
 
 def test_otel_tracer_basic_events(tmp_path, monkeypatch):
     """OtelTracer exports basic events without crashing."""
-    if importlib.util.find_spec("opentelemetry") is None:
-        pytest.skip("OpenTelemetry SDK not installed")
+    pytest.importorskip("opentelemetry.sdk")
 
     monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
 
@@ -37,8 +50,7 @@ def test_otel_tracer_basic_events(tmp_path, monkeypatch):
 
 def test_otel_tracer_handles_events_without_task_id(tmp_path, monkeypatch):
     """OtelTracer handles standalone events without task_id."""
-    if importlib.util.find_spec("opentelemetry") is None:
-        pytest.skip("OpenTelemetry SDK not installed")
+    pytest.importorskip("opentelemetry.sdk")
 
     monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
 
@@ -55,8 +67,7 @@ def test_otel_tracer_handles_events_without_task_id(tmp_path, monkeypatch):
 
 def test_otel_tracer_respects_endpoint_env_var(tmp_path, monkeypatch):
     """OtelTracer uses OTLP exporter when endpoint is set."""
-    if importlib.util.find_spec("opentelemetry") is None:
-        pytest.skip("OpenTelemetry SDK not installed")
+    pytest.importorskip("opentelemetry.sdk")
 
     monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
 

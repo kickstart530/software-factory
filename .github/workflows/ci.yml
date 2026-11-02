@@ -17,7 +17,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install
-        run: pip install -e ".[dev]"
+        run: pip install -e ".[dev,otel]"
       - name: Lint
         run: ruff check . && ruff format --check .
       - name: Agent definitions
