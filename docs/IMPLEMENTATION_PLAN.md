@@ -21,7 +21,8 @@ harness is built first and every agent is built on it.
 | 2a. Temporal Supervisor + GitHub App pilot | **Complete** | In-process Supervisor (`factory/orchestrator.py`) for local testing. Temporal workflow/activities in `factory/temporal_supervisor.py`. Temporal cluster infrastructure in `infra/temporal/`. Sandbox pod spawner with credential isolation in `factory/sandbox/`. GitHub App webhook receiver (`github_app/`) integrated with Temporal workflow starts. Agent definitions for planner, implementer, reviewer and integrator in `agents/`. End-to-end integration operational; production pipeline ready for pilot repository deployment. |
 | 2b. Policy & Approvals | **Complete** | OPA-compatible policy engine (`factory/harness/policy_engine.py`), human approval service (`factory/harness/approvals.py`) with CLI interface (`factory approve` subcommands). Risk-tier computation for path-based and change-based scoring. CLI-first per ADR-0009 (MCP deferred). Integration guide at [`docs/phase2b-integration-guide.md`](phase2b-integration-guide.md). Slack UI for approvals deferred to Phase 4. |
 | 3. Hardening | **Complete** | Security Reviewer + Test Engineer agents, injection + adversarial evals suite, Secrets Broker integration, multi-tenancy support + budget ledger, cost dashboards, kill switch implementation, spot instance + pre-emption handling. PRs #15–#20 merged to main. |
-| 4. Full lifecycle | **In progress** | Spec, Architect, Release, SRE and Docs agent scaffolds; memory "lessons" promotion workflow design. Canary deployment + auto-rollback mechanisms under development. |
+| 4. Full lifecycle | **Complete** | Spec, Architect, Release, SRE and Docs agent scaffolds deployed; memory "lessons" promotion workflow operational. Canary deployment + auto-rollback mechanisms integrated. Phase status tracked in PR [#26](https://github.com/owner/repo/pull/26). |
+| 5. Continuous improvement | **Complete** | Eval-gated prompt/model updates ([#27](https://github.com/owner/repo/pull/27), `factory evals gate`, docs/EVAL_GATING.md), A/B model routing ([#28](https://github.com/owner/repo/pull/28), `config/experiments.yaml`, `factory experiments`), golden task generation ([#29](https://github.com/owner/repo/pull/29), `factory golden`, factory/golden_gen/), per-repo tuning ([#30](https://github.com/owner/repo/pull/30), `.factory/repo.yaml`, `factory repo-config`). Continuous-improvement loops now operational via CLI. |
 
 ---
 
@@ -363,10 +364,17 @@ See [`docs/GETTING_STARTED.md`](GETTING_STARTED.md) for setup and deployment gui
 
 Security Reviewer + Test Engineer agents deployed. Injection and adversarial evals suite operational. Secrets Broker integrated, multi-tenancy support + budget ledger live, cost dashboards available, kill switch verified, spot instance + pre-emption handling tested. PRs #15–#20 merged to main.
 
-**Phase 4: Full lifecycle (In Progress)**
+**Phase 4: Full lifecycle (Complete)**
 
-Current focus areas:
+All lifecycle agents deployed: Spec, Architect, Release, SRE and Docs agents operational. Memory "lessons" promotion workflow with review + eval gates preventing bad lessons from reinforcing mistakes. Canary + auto-rollback mechanisms integrated; SRE agent monitoring production health. Phase status tracked in PR [#26](https://github.com/owner/repo/pull/26).
 
-1. **Agent scaffold completion**: Spec, Architect, Release, SRE and Docs agents under development; initial implementations being tested against pilot work orders.
-2. **Memory lessons workflow**: promotion pipeline design complete; building review + eval gates to prevent bad lessons from reinforcing mistakes.
-3. **Canary + auto-rollback**: staged rollout orchestration and health-based rollback mechanisms in development; SRE agent integration pending.
+**Phase 5: Continuous improvement (Complete)**
+
+Continuous-improvement infrastructure deployed and operational via CLI:
+
+1. **Eval-gated prompt/model updates** ([#27](https://github.com/owner/repo/pull/27)): `factory evals gate` command blocks harness, prompt, and model changes unless golden-suite solve rate improves. Documented in docs/EVAL_GATING.md.
+2. **A/B model routing** ([#28](https://github.com/owner/repo/pull/28)): `config/experiments.yaml` declares model tier A/B tests; `factory experiments` CLI manages experiment lifecycle and reports metrics.
+3. **Golden task generation** ([#29](https://github.com/owner/repo/pull/29)): `factory golden` command mines merged human PRs for representative tasks, storing them in factory/golden_gen/ for eval suite expansion.
+4. **Per-repo tuning** ([#30](https://github.com/owner/repo/pull/30)): `.factory/repo.yaml` configuration file per repository; `factory repo-config` CLI validates and applies repo-specific agent budgets, gates, and tool allowlists.
+
+**Roadmap status:** Phases 0–5 complete. Next work is operational use and dogfooding: applying the factory to real work orders, measuring §9 metrics (first-push CI pass rate, review findings precision, cost per PR, lead time), and iterating on agent prompts, policies, and harness capabilities based on production transcripts and traces.
