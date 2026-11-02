@@ -7,7 +7,14 @@ import json
 import sys
 from pathlib import Path
 
-from evals import ReplayRunner, load_golden_tasks
+from evals import (
+    ConfigVariant,
+    EvalGate,
+    ReplayRunner,
+    load_golden_tasks,
+    print_gate_report,
+    save_gate_report,
+)
 from factory.agents.spec import AgentCatalog
 from factory.control import KillSwitch
 from factory.control.budget_ledger import FileBudgetLedger
@@ -928,6 +935,40 @@ def cmd_repo_config_show(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_evals_gate(args: argparse.Namespace) -> int:
+    """Run eval gate to compare baseline vs candidate configurations."""
+    golden_dir = Path(args.golden_dir)
+    workspace_root = Path(args.workspace_root)
+    artifacts_root = Path(args.artifacts_root)
+
+    tasks = load_golden_tasks(golden_dir)
+    if not tasks:
+        print(f"No golden tasks found in {golden_dir}", file=sys.stderr)
+        return 1
+
+    baseline = ConfigVariant(
+        name="baseline",
+        agents_dir=Path(args.baseline_agents) if args.baseline_agents else None,
+        models_config=Path(args.baseline_models) if args.baseline_models else None,
+    )
+
+    candidate = ConfigVariant(
+        name="candidate",
+        agents_dir=Path(args.candidate_agents) if args.candidate_agents else None,
+        models_config=Path(args.candidate_models) if args.candidate_models else None,
+    )
+
+    gate = EvalGate(baseline, candidate, tasks, workspace_root, artifacts_root)
+    comparison = gate.run()
+
+    print_gate_report(comparison)
+
+    if args.json:
+        save_gate_report(comparison, Path(args.json))
+
+    return 1 if comparison.has_regressions else 0
+
+
 def cmd_evals_replay(args: argparse.Namespace) -> int:
     golden_dir = Path(args.golden_dir)
     workspace_root = Path(args.workspace_root)
@@ -1353,24 +1394,69 @@ def build_parser() -> argparse.ArgumentParser:
         r.set_defaults(func=func)
 
     e = sub.add_parser("evals", help="run evaluation suite")
-    e.add_argument("action", choices=["replay"], help="replay golden tasks")
-    e.add_argument(
+    evals_sub = e.add_subparsers(dest="evals_action", required=True)
+
+    # evals replay subcommand
+    replay = evals_sub.add_parser("replay", help="replay golden tasks")
+    replay.add_argument(
         "--golden-dir",
         default=str(REPO_ROOT / "evals" / "golden"),
         help="directory with golden task JSON files",
     )
-    e.add_argument(
+    replay.add_argument(
         "--workspace-root",
         default=".factory-evals/workspaces",
         help="root directory for test workspaces",
     )
-    e.add_argument(
+    replay.add_argument(
         "--artifacts-root",
         default=".factory-evals/artifacts",
         help="root directory for test artifacts",
     )
-    e.add_argument("--json", help="write detailed results to JSON file")
-    e.set_defaults(func=cmd_evals_replay)
+    replay.add_argument("--json", help="write detailed results to JSON file")
+    replay.set_defaults(func=cmd_evals_replay)
+
+    # evals gate subcommand
+    gate = evals_sub.add_parser(
+        "gate",
+        help="compare baseline vs candidate prompt/model changes",
+    )
+    gate.add_argument(
+        "--golden-dir",
+        default=str(REPO_ROOT / "evals" / "golden"),
+        help="directory with golden task JSON files",
+    )
+    gate.add_argument(
+        "--workspace-root",
+        default=".factory-evals-gate/workspaces",
+        help="root directory for test workspaces",
+    )
+    gate.add_argument(
+        "--artifacts-root",
+        default=".factory-evals-gate/artifacts",
+        help="root directory for test artifacts",
+    )
+    gate.add_argument(
+        "--baseline-agents",
+        help="baseline agents directory (defaults to current agents/)",
+    )
+    gate.add_argument(
+        "--baseline-models",
+        help="baseline models config (defaults to current config/models.yaml)",
+    )
+    gate.add_argument(
+        "--candidate-agents",
+        help="candidate agents directory (required if testing agent changes)",
+    )
+    gate.add_argument(
+        "--candidate-models",
+        help="candidate models config (required if testing model changes)",
+    )
+    gate.add_argument(
+        "--json",
+        help="write detailed gate report to JSON file",
+    )
+    gate.set_defaults(func=cmd_evals_gate)
 
     # Golden task management commands
     golden = sub.add_parser("golden", help="manage golden task candidates")
