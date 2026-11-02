@@ -16,6 +16,7 @@ from factory.control.kill_switch import FileKillSwitchStore
 from factory.harness import (
     AgentHarness,
     AnthropicModelClient,
+    ExperimentConfig,
     FileCheckpointStore,
     HarnessDeps,
     JsonlTracer,
@@ -61,8 +62,12 @@ def _harness(args: argparse.Namespace, task: Task) -> AgentHarness:
     spec = catalog[task.agent]
     state_dir = Path(args.state_dir)
     config = ModelConfig.load(Path(args.models))
+    experiments_path = Path(args.experiments)
+    experiments = (
+        ExperimentConfig.load(experiments_path) if experiments_path.exists() else ExperimentConfig()
+    )
     deps = HarnessDeps(
-        model=AnthropicModelClient(config),
+        model=AnthropicModelClient(config, experiments=experiments),
         model_config=config,
         checkpoints=FileCheckpointStore(state_dir / "checkpoints"),
         tracer=JsonlTracer(state_dir / "traces" / f"{task.id}.jsonl", task_id=task.id),
@@ -690,6 +695,94 @@ def cmd_cost_export(args: argparse.Namespace) -> int:
 
     count = dashboard.export_metrics_jsonl(output, period)
     print(f"✓ Exported {count} cost records to {output}")
+    return 0
+
+
+def cmd_experiments_list(args: argparse.Namespace) -> int:
+    """List all A/B experiments with their status."""
+    experiments_path = Path(args.experiments)
+    if not experiments_path.exists():
+        print(f"No experiments file found at {experiments_path}")
+        return 0
+
+    config = ExperimentConfig.load(experiments_path)
+    if not config.experiments:
+        print("No experiments defined")
+        return 0
+
+    print(f"{'=' * 80}")
+    print(f"A/B Experiments from {experiments_path}")
+    print(f"{'=' * 80}\n")
+
+    for exp_id, exp in config.experiments.items():
+        status = "ENABLED" if exp.enabled else "disabled"
+        print(f"• {exp_id} [{status}]")
+        print(f"  Tier:      {exp.tier}")
+        print(f"  Sticky by: {exp.sticky_by or 'none (random per-call)'}")
+        print(f"  Variants:  {len(exp.variants)}")
+        for variant_name, variant in exp.variants.items():
+            print(
+                f"    - {variant_name}: weight={variant.weight} "
+                f"model={variant.model} effort={variant.effort}"
+            )
+        print()
+
+    enabled = sum(1 for e in config.experiments.values() if e.enabled)
+    print(f"Total: {len(config.experiments)} experiments ({enabled} enabled)")
+    return 0
+
+
+def cmd_experiments_show(args: argparse.Namespace) -> int:
+    """Show details of a specific experiment."""
+    experiments_path = Path(args.experiments)
+    if not experiments_path.exists():
+        print(f"No experiments file found at {experiments_path}")
+        return 1
+
+    config = ExperimentConfig.load(experiments_path)
+    exp = config.experiments.get(args.experiment_id)
+    if not exp:
+        print(f"Experiment '{args.experiment_id}' not found")
+        return 1
+
+    print(json.dumps(exp.model_dump(), indent=2))
+    return 0
+
+
+def cmd_experiments_test_assignment(args: argparse.Namespace) -> int:
+    """Test which variant would be assigned for a given key."""
+    experiments_path = Path(args.experiments)
+    if not experiments_path.exists():
+        print(f"No experiments file found at {experiments_path}")
+        return 1
+
+    config = ExperimentConfig.load(experiments_path)
+    exp = config.experiments.get(args.experiment_id)
+    if not exp:
+        print(f"Experiment '{args.experiment_id}' not found")
+        return 1
+
+    if not exp.enabled:
+        print(f"Note: experiment '{args.experiment_id}' is currently disabled")
+
+    assignment_key = args.assignment_key
+    variant_name, variant = exp.select_variant(assignment_key)
+
+    print(f"Experiment: {args.experiment_id}")
+    print(f"Assignment key: {assignment_key}")
+    print(f"Sticky by: {exp.sticky_by or 'none (random per-call)'}")
+    print(f"\nAssigned variant: {variant_name}")
+    print(f"  Model:  {variant.model}")
+    print(f"  Effort: {variant.effort}")
+    print(f"  Weight: {variant.weight}")
+
+    # Show probability distribution
+    total_weight = sum(v.weight for v in exp.variants.values())
+    print("\nVariant distribution:")
+    for name, var in exp.variants.items():
+        prob = (var.weight / total_weight) * 100
+        marker = "←" if name == variant_name else " "
+        print(f"  {marker} {name}: {prob:.1f}% (weight {var.weight})")
 
     return 0
 
@@ -698,6 +791,11 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="factory", description="Software factory harness CLI")
     p.add_argument("--agents", default=str(REPO_ROOT / "agents"), help="agent definitions dir")
     p.add_argument("--models", default=str(REPO_ROOT / "config" / "models.yaml"))
+    p.add_argument(
+        "--experiments",
+        default=str(REPO_ROOT / "config" / "experiments.yaml"),
+        help="A/B experiments configuration",
+    )
     sub = p.add_subparsers(dest="command", required=True)
 
     s = sub.add_parser("schemas", help="export JSON schemas")
@@ -836,6 +934,24 @@ def build_parser() -> argparse.ArgumentParser:
     )
     memory_cleanup.add_argument("--state-dir", default=".factory-runs", help="state directory")
     memory_cleanup.set_defaults(func=cmd_memory_cleanup)
+
+    # Experiments management commands
+    experiments = sub.add_parser("experiments", help="manage A/B experiments")
+    experiments_sub = experiments.add_subparsers(dest="experiments_action", required=True)
+
+    exp_list = experiments_sub.add_parser("list", help="list all A/B experiments")
+    exp_list.set_defaults(func=cmd_experiments_list)
+
+    exp_show = experiments_sub.add_parser("show", help="show details of a specific experiment")
+    exp_show.add_argument("experiment_id", help="experiment ID")
+    exp_show.set_defaults(func=cmd_experiments_show)
+
+    exp_test = experiments_sub.add_parser(
+        "test-assignment", help="test which variant would be assigned"
+    )
+    exp_test.add_argument("experiment_id", help="experiment ID")
+    exp_test.add_argument("assignment_key", help="work_order_id or tenant_id to test")
+    exp_test.set_defaults(func=cmd_experiments_test_assignment)
 
     for name, func, help_ in (
         ("run", cmd_run, "run one task with its agent"),

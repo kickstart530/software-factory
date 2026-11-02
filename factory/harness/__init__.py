@@ -6,6 +6,7 @@ from factory.harness.hooks import Hooks
 from factory.harness.loop import AgentHarness, HarnessDeps
 from factory.harness.model import (
     AnthropicModelClient,
+    ExperimentConfig,
     MissingCredentialsError,
     ModelConfig,
     ModelRequest,
@@ -19,6 +20,7 @@ from factory.harness.tools import Tool, ToolContext, ToolRegistry, builtin_tools
 __all__ = [
     "AgentHarness",
     "AnthropicModelClient",
+    "ExperimentConfig",
     "FileCheckpointStore",
     "GateCommand",
     "GateRunner",
