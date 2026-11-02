@@ -81,7 +81,7 @@ def cmd_approve_list(args: argparse.Namespace) -> int:
         return 0
 
     for req in pending:
-        print(f"\n{'='*80}")
+        print(f"\n{'=' * 80}")
         print(f"ID:           {req.id}")
         print(f"Task:         {req.task_id}")
         print(f"Work Order:   {req.work_order_id}")
@@ -92,14 +92,14 @@ def cmd_approve_list(args: argparse.Namespace) -> int:
         print(f"\nReason:       {req.reason}")
         if req.risk_factors:
             print(f"Risk factors: {', '.join(req.risk_factors)}")
-        print(f"\nTool args:")
+        print("\nTool args:")
         print(json.dumps(req.tool_args, indent=2))
 
-    print(f"\n{'='*80}")
+    print(f"\n{'=' * 80}")
     print(f"\n{len(pending)} pending request(s)")
-    print(f"\nTo review: factory approve show <request-id>")
-    print(f"To approve: factory approve accept <request-id> --reason '...'")
-    print(f"To deny: factory approve deny <request-id> --reason '...'")
+    print("\nTo review: factory approve show <request-id>")
+    print("To approve: factory approve accept <request-id> --reason '...'")
+    print("To deny: factory approve deny <request-id> --reason '...'")
     return 0
 
 
@@ -181,34 +181,26 @@ def build_parser() -> argparse.ArgumentParser:
     approve_sub = approve.add_subparsers(dest="approve_action", required=True)
 
     approve_list = approve_sub.add_parser("list", help="list pending approval requests")
-    approve_list.add_argument(
-        "--state-dir", default=".factory-runs", help="state directory"
-    )
+    approve_list.add_argument("--state-dir", default=".factory-runs", help="state directory")
     approve_list.set_defaults(func=cmd_approve_list)
 
     approve_show = approve_sub.add_parser("show", help="show a specific approval request")
     approve_show.add_argument("request_id", help="approval request ID")
-    approve_show.add_argument(
-        "--state-dir", default=".factory-runs", help="state directory"
-    )
+    approve_show.add_argument("--state-dir", default=".factory-runs", help="state directory")
     approve_show.set_defaults(func=cmd_approve_show)
 
     approve_accept = approve_sub.add_parser("accept", help="approve a request")
     approve_accept.add_argument("request_id", help="approval request ID")
     approve_accept.add_argument("--reason", required=True, help="reason for approval")
     approve_accept.add_argument("--user", help="user name (defaults to cli-user)")
-    approve_accept.add_argument(
-        "--state-dir", default=".factory-runs", help="state directory"
-    )
+    approve_accept.add_argument("--state-dir", default=".factory-runs", help="state directory")
     approve_accept.set_defaults(func=cmd_approve_accept)
 
     approve_deny = approve_sub.add_parser("deny", help="deny a request")
     approve_deny.add_argument("request_id", help="approval request ID")
     approve_deny.add_argument("--reason", required=True, help="reason for denial")
     approve_deny.add_argument("--user", help="user name (defaults to cli-user)")
-    approve_deny.add_argument(
-        "--state-dir", default=".factory-runs", help="state directory"
-    )
+    approve_deny.add_argument("--state-dir", default=".factory-runs", help="state directory")
     approve_deny.set_defaults(func=cmd_approve_deny)
 
     for name, func, help_ in (

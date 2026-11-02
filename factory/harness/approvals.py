@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import json
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Protocol
 
@@ -50,11 +50,11 @@ class FileBasedApprovalService:
 
     def request_approval(self, request: ApprovalRequest) -> ApprovalRequest:
         """Write an approval request and return it."""
-        request.requested_at = datetime.now(timezone.utc).isoformat()
+        request.requested_at = datetime.now(UTC).isoformat()
         request.status = ApprovalStatus.PENDING
         # Set default expiry to 24 hours from now
         if not request.expires_at:
-            expires = datetime.now(timezone.utc) + timedelta(hours=24)
+            expires = datetime.now(UTC) + timedelta(hours=24)
             request.expires_at = expires.isoformat()
 
         path = self._request_path(request.id, pending=True)
@@ -77,7 +77,7 @@ class FileBasedApprovalService:
             request = self.get_request(request_id)
             if request and request.expires_at:
                 expires = datetime.fromisoformat(request.expires_at)
-                if datetime.now(timezone.utc) > expires:
+                if datetime.now(UTC) > expires:
                     # Mark as expired
                     request.status = ApprovalStatus.EXPIRED
                     self._move_to_decided(request)
@@ -96,7 +96,7 @@ class FileBasedApprovalService:
             # Check expiry
             if request.expires_at:
                 expires = datetime.fromisoformat(request.expires_at)
-                if datetime.now(timezone.utc) > expires:
+                if datetime.now(UTC) > expires:
                     request.status = ApprovalStatus.EXPIRED
                     self._move_to_decided(request)
                     continue
@@ -124,13 +124,11 @@ class FileBasedApprovalService:
             raise ValueError(f"approval request {decision.request_id} not found")
 
         if request.status != ApprovalStatus.PENDING:
-            raise ValueError(
-                f"request {decision.request_id} is {request.status}, cannot decide"
-            )
+            raise ValueError(f"request {decision.request_id} is {request.status}, cannot decide")
 
         # Update request with decision
         request.status = ApprovalStatus.APPROVED if decision.approved else ApprovalStatus.DENIED
-        request.decided_at = datetime.now(timezone.utc).isoformat()
+        request.decided_at = datetime.now(UTC).isoformat()
         request.decided_by = decision.decided_by
         request.decision_reason = decision.reason
 

@@ -291,8 +291,7 @@ class PolicyEvaluationInput(Contract):
     tainted: bool
     rel_path: str | None = None
     protected_paths: dict[str, list[str]] = Field(
-        default_factory=dict,
-        description="Map of risk tier -> path patterns"
+        default_factory=dict, description="Map of risk tier -> path patterns"
     )
 
 

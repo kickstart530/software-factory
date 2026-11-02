@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from factory.harness.policy import ALLOW, CallContext, Policy, PolicyDecision, RulePolicy
+from factory.harness.policy import CallContext, Policy, PolicyDecision, RulePolicy
 from factory.harness.tools import Tool
 from factory.schemas import PolicyEvaluationInput, PolicyEvaluationResult
 
@@ -170,9 +170,7 @@ class EnhancedPolicy:
         self.opa_policy = opa_policy
         self.approval_required_tools = approval_required_tools or set()
 
-    def check(
-        self, tool: Tool, args: dict[str, Any], ctx: CallContext
-    ) -> EnhancedPolicyDecision:
+    def check(self, tool: Tool, args: dict[str, Any], ctx: CallContext) -> EnhancedPolicyDecision:
         """Evaluate policy and determine if approval is needed."""
 
         # 1. Check RulePolicy first (hard denials)

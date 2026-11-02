@@ -1,6 +1,6 @@
 """Tests for the approval service (Phase 2b)."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -130,7 +130,7 @@ def test_record_decision_denies_request(service: FileBasedApprovalService):
 
 def test_expired_requests_not_in_pending_list(service: FileBasedApprovalService):
     # Create a request that expired 1 hour ago
-    past = datetime.now(timezone.utc) - timedelta(hours=1)
+    past = datetime.now(UTC) - timedelta(hours=1)
     request = ApprovalRequest(
         id="req-001",
         task_id="task-001",

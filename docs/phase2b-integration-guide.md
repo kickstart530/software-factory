@@ -70,22 +70,15 @@ from factory.harness.approvals import FileBasedApprovalService
 
 # Create policy
 rule_policy = RulePolicy()
-opa_policy = OPAPolicy(
-    policy_dir=Path("config/policies"),
-    entrypoint="data.factory.allow"
-)
+opa_policy = OPAPolicy(policy_dir=Path("config/policies"), entrypoint="data.factory.allow")
 approval_required_tools = {"deploy", "delete_database", "migrate"}
 
 policy = EnhancedPolicy(
-    rule_policy=rule_policy,
-    opa_policy=opa_policy,
-    approval_required_tools=approval_required_tools
+    rule_policy=rule_policy, opa_policy=opa_policy, approval_required_tools=approval_required_tools
 )
 
 # Create approval service
-approval_service = FileBasedApprovalService(
-    approvals_dir=Path(".factory-runs/approvals")
-)
+approval_service = FileBasedApprovalService(approvals_dir=Path(".factory-runs/approvals"))
 ```
 
 ### 3. Tool Definition (CLI-first)
@@ -276,13 +269,13 @@ Policy decisions are recorded in task telemetry:
 ```python
 # In harness traces (.factory-runs/traces/*.jsonl)
 {
-  "event": "policy_check",
-  "tool": "run_command",
-  "decision": {
-    "allowed": true,
-    "requires_approval": true,
-    "approval_reason": "deployment requires approval"
-  }
+    "event": "policy_check",
+    "tool": "run_command",
+    "decision": {
+        "allowed": true,
+        "requires_approval": true,
+        "approval_reason": "deployment requires approval",
+    },
 }
 ```
 
@@ -339,10 +332,7 @@ request.expires_at = (datetime.now(UTC) + timedelta(hours=48)).isoformat()
 
 1. Task attempts to deploy to production:
    ```python
-   tool_call = {
-       "name": "run_command",
-       "input": {"command": "kubectl apply -f production.yaml"}
-   }
+   tool_call = {"name": "run_command", "input": {"command": "kubectl apply -f production.yaml"}}
    ```
 
 2. Policy engine evaluates:
