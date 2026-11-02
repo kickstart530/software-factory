@@ -226,14 +226,10 @@ def cmd_control_pause(args: argparse.Namespace) -> int:
     """Pause the factory (global or per-tenant)."""
     store = FileKillSwitchStore(Path(args.state_dir) / "kill_switch")
     switch = KillSwitch(store)
-    
+
     tenant = args.tenant if args.tenant != "global" else None
-    status = switch.pause(
-        tenant_id=tenant,
-        reason=args.reason,
-        paused_by=args.user or "cli-user"
-    )
-    
+    status = switch.pause(tenant_id=tenant, reason=args.reason, paused_by=args.user or "cli-user")
+
     scope = f"tenant {tenant}" if tenant else "global"
     print(f"✓ Paused {scope}")
     print(f"  Reason: {status.reason}")
@@ -246,10 +242,10 @@ def cmd_control_resume(args: argparse.Namespace) -> int:
     """Resume the factory (global or per-tenant)."""
     store = FileKillSwitchStore(Path(args.state_dir) / "kill_switch")
     switch = KillSwitch(store)
-    
+
     tenant = args.tenant if args.tenant != "global" else None
     switch.resume(tenant_id=tenant)
-    
+
     scope = f"tenant {tenant}" if tenant else "global"
     print(f"✓ Resumed {scope}")
     return 0
@@ -259,23 +255,23 @@ def cmd_control_status(args: argparse.Namespace) -> int:
     """Show kill switch status."""
     store = FileKillSwitchStore(Path(args.state_dir) / "kill_switch")
     switch = KillSwitch(store)
-    
+
     if args.tenant and args.tenant != "global":
         status = switch.status(tenant_id=args.tenant)
         statuses = {args.tenant: status}
     else:
         statuses = switch.list_all()
-    
+
     for name, status in statuses.items():
-        print(f"\n{'='*70}")
+        print(f"\n{'=' * 70}")
         print(f"Kill Switch: {name}")
-        print(f"{'='*70}")
+        print(f"{'=' * 70}")
         print(f"State: {status.state.value}")
         if status.is_paused():
             print(f"Paused at: {status.paused_at}")
             print(f"Paused by: {status.paused_by}")
             print(f"Reason: {status.reason}")
-    
+
     return 0
 
 
@@ -283,15 +279,15 @@ def cmd_cost_report(args: argparse.Namespace) -> int:
     """Generate cost report."""
     ledger = FileBudgetLedger(Path(args.state_dir) / "budgets")
     dashboard = CostDashboard(ledger)
-    
+
     period = args.period if hasattr(args, "period") and args.period else None
-    
+
     if args.tenant:
         summary = dashboard.get_tenant_summary(args.tenant, period)
         print(dashboard.format_summary(summary))
     else:
         dashboard.print_report(period)
-    
+
     return 0
 
 
@@ -299,13 +295,13 @@ def cmd_cost_export(args: argparse.Namespace) -> int:
     """Export cost metrics to JSONL."""
     ledger = FileBudgetLedger(Path(args.state_dir) / "budgets")
     dashboard = CostDashboard(ledger)
-    
+
     period = args.period if args.period else None
     output = Path(args.output)
-    
+
     count = dashboard.export_metrics_jsonl(output, period)
     print(f"✓ Exported {count} cost records to {output}")
-    
+
     return 0
 
 
@@ -411,9 +407,7 @@ def build_parser() -> argparse.ArgumentParser:
     resume.set_defaults(func=cmd_control_resume)
 
     status = control_sub.add_parser("status", help="show kill switch status")
-    status.add_argument(
-        "--tenant", help="specific tenant to check, or omit for all"
-    )
+    status.add_argument("--tenant", help="specific tenant to check, or omit for all")
     status.add_argument("--state-dir", default=".factory-runs", help="state directory")
     status.set_defaults(func=cmd_control_status)
 

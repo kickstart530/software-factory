@@ -80,7 +80,7 @@ class WorkOrder(Contract):
     labels: list[str] = Field(default_factory=list)
     tenant_id: str | None = Field(
         default=None,
-        description="Multi-tenancy: namespace for budget/policy isolation. Defaults to 'default'."
+        description="Multi-tenancy: namespace for budget/policy isolation. Defaults to 'default'.",
     )
 
 
@@ -109,8 +109,7 @@ class Task(Contract):
     branch: str | None = None
     status: TaskStatus = TaskStatus.PENDING
     tenant_id: str | None = Field(
-        default=None,
-        description="Inherited from WorkOrder; used for budget/policy isolation."
+        default=None, description="Inherited from WorkOrder; used for budget/policy isolation."
     )
 
     @model_validator(mode="after")

@@ -41,10 +41,10 @@ ledger = FileBudgetLedger(Path(".factory-runs/budgets"))
 
 config = TenantBudgetConfig(
     tenant_id="acme-corp",
-    monthly_usd_limit=500.0,      # $500/month
-    daily_usd_limit=50.0,         # $50/day
-    tokens_per_task_limit=100000, # 100K tokens per task
-    enabled=True
+    monthly_usd_limit=500.0,  # $500/month
+    daily_usd_limit=50.0,  # $50/day
+    tokens_per_task_limit=100000,  # 100K tokens per task
+    enabled=True,
 )
 
 ledger.set_tenant_config(config)
@@ -64,19 +64,10 @@ from factory.schemas import Usage
 
 # Record usage for a completed task
 usage = Usage(
-    input_tokens=5000,
-    output_tokens=1500,
-    usd=0.25,
-    turns=10,
-    tool_calls=5,
-    wall_clock_s=120.0
+    input_tokens=5000, output_tokens=1500, usd=0.25, turns=10, tool_calls=5, wall_clock_s=120.0
 )
 
-ledger.record_usage(
-    tenant_id="acme-corp",
-    usage=usage,
-    task_id="T-456"
-)
+ledger.record_usage(tenant_id="acme-corp", usage=usage, task_id="T-456")
 ```
 
 Usage is aggregated by:
@@ -99,11 +90,7 @@ estimated_usage = Usage(usd=10.0)  # Conservative estimate
 allowed, reason = ledger.check_quota(tenant_id, estimated_usage)
 if not allowed:
     # Pause tenant or escalate
-    return TaskResult(
-        task_id=task.id,
-        status=TaskStatus.FAILED,
-        error=f"Quota exceeded: {reason}"
-    )
+    return TaskResult(task_id=task.id, status=TaskStatus.FAILED, error=f"Quota exceeded: {reason}")
 
 # After task completes
 ledger.record_usage(tenant_id, actual_usage, task.id)
@@ -258,12 +245,14 @@ for summary in summaries:
         tenant_id=summary.tenant_id,
         period=period,
         amount_usd=summary.total_usd,
-        line_items=[{
-            "description": f"AI Factory Usage - {period}",
-            "quantity": summary.total_tokens,
-            "unit": "tokens",
-            "amount": summary.total_usd
-        }]
+        line_items=[
+            {
+                "description": f"AI Factory Usage - {period}",
+                "quantity": summary.total_tokens,
+                "unit": "tokens",
+                "amount": summary.total_usd,
+            }
+        ],
     )
 ```
 

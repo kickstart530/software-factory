@@ -103,10 +103,7 @@ from factory.harness.loop import AgentHarness
 checkpoint_store = FileCheckpointStore(Path(".factory-runs/checkpoints"))
 
 # Load checkpoint if it exists
-run_state = checkpoint_store.load(
-    task_id=task.id,
-    work_order_id=task.work_order_id
-)
+run_state = checkpoint_store.load(task_id=task.id, work_order_id=task.work_order_id)
 
 if run_state:
     # Resume from checkpoint
@@ -157,40 +154,42 @@ class S3CheckpointStore:
     def __init__(self, bucket: str, s3_client):
         self.bucket = bucket
         self.s3 = s3_client
-    
+
     def save(self, state: RunState) -> str:
         checkpoint_id = f"{time.time_ns()}"
         key = f"checkpoints/{state.work_order_id}/{state.task_id}/{checkpoint_id}.json"
-        
+
         self.s3.put_object(
             Bucket=self.bucket,
             Key=key,
             Body=state.model_dump_json(),
         )
-        
+
         # Update LATEST pointer
         self.s3.put_object(
             Bucket=self.bucket,
             Key=f"checkpoints/{state.work_order_id}/{state.task_id}/LATEST",
             Body=checkpoint_id,
         )
-        
+
         return checkpoint_id
-    
+
     def load(self, task_id: str, work_order_id: str | None = None) -> RunState | None:
         try:
             # Get latest checkpoint ID
-            latest = self.s3.get_object(
-                Bucket=self.bucket,
-                Key=f"checkpoints/{work_order_id}/{task_id}/LATEST"
-            )["Body"].read().decode()
-            
+            latest = (
+                self.s3.get_object(
+                    Bucket=self.bucket, Key=f"checkpoints/{work_order_id}/{task_id}/LATEST"
+                )["Body"]
+                .read()
+                .decode()
+            )
+
             # Load checkpoint
             obj = self.s3.get_object(
-                Bucket=self.bucket,
-                Key=f"checkpoints/{work_order_id}/{task_id}/{latest}.json"
+                Bucket=self.bucket, Key=f"checkpoints/{work_order_id}/{task_id}/{latest}.json"
             )
-            
+
             return RunState.model_validate_json(obj["Body"].read())
         except self.s3.exceptions.NoSuchKey:
             return None
@@ -204,28 +203,34 @@ For transactional consistency with other factory state:
 class PostgresCheckpointStore:
     def save(self, state: RunState) -> str:
         checkpoint_id = f"{time.time_ns()}"
-        
+
         with self.conn.cursor() as cur:
-            cur.execute("""
+            cur.execute(
+                """
                 INSERT INTO checkpoints (id, work_order_id, task_id, state, created_at)
                 VALUES (%(id)s, %(work_order_id)s, %(task_id)s, %(state)s, NOW())
-            """, {
-                "id": checkpoint_id,
-                "work_order_id": state.work_order_id,
-                "task_id": state.task_id,
-                "state": state.model_dump_json(),
-            })
-            
-            cur.execute("""
+            """,
+                {
+                    "id": checkpoint_id,
+                    "work_order_id": state.work_order_id,
+                    "task_id": state.task_id,
+                    "state": state.model_dump_json(),
+                },
+            )
+
+            cur.execute(
+                """
                 UPDATE checkpoints_latest
                 SET checkpoint_id = %(id)s, updated_at = NOW()
                 WHERE work_order_id = %(work_order_id)s AND task_id = %(task_id)s
-            """, {
-                "id": checkpoint_id,
-                "work_order_id": state.work_order_id,
-                "task_id": state.task_id,
-            })
-        
+            """,
+                {
+                    "id": checkpoint_id,
+                    "work_order_id": state.work_order_id,
+                    "task_id": state.task_id,
+                },
+            )
+
         self.conn.commit()
         return checkpoint_id
 ```
