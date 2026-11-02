@@ -7,7 +7,7 @@
 | [0003](0003-typed-artifact-coordination.md) | Agents coordinate through typed artifacts, not chat | Accepted |
 | [0004](0004-git-source-of-truth.md) | Git is the source of truth for code | Accepted |
 | [0005](0005-model-gateway.md) | Models are reached through a gateway; model IDs live only in config | Accepted |
-| [0006](0006-tool-gateway-mcp.md) | All external actions go through a tool gateway (MCP) | Accepted |
+| [0006](0006-tool-gateway-cli-first.md) | External actions go through a tool gateway (CLI-first) | Accepted |
 | [0007](0007-policy-as-code.md) | Policy-as-code decides what each agent may do | Accepted |
 | [0008](0008-deterministic-verification-gates.md) | Deterministic verification before LLM judgement | Accepted |
 
