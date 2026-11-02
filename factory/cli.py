@@ -32,6 +32,7 @@ from factory.memory import (
     LessonStatus,
     PromotionDecision,
 )
+from factory.release import CanaryOrchestrator, CanaryPlan, CanaryRun, FakeBackend
 from factory.schemas import EXPORTED_SCHEMAS, ApprovalDecision, RiskTier, Task
 from factory.secrets import MintRequest, SecretStatus
 from factory.secrets.backends import EnvFileBackend
@@ -448,6 +449,112 @@ def cmd_memory_cleanup(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_canary_start(args: argparse.Namespace) -> int:
+    """Start a new canary deployment."""
+    plan = CanaryPlan.model_validate_json(Path(args.plan).read_text())
+    run = CanaryRun.model_validate_json(Path(args.run).read_text())
+
+    backend = FakeBackend()
+    if args.current_version:
+        backend.current_version = args.current_version
+
+    orchestrator = CanaryOrchestrator(backend, state_dir=Path(args.state_dir) / "canary")
+
+    try:
+        result = orchestrator.start_canary(plan, run)
+        if not args.no_deploy:
+            backend.deploy_canary(run.version, plan.stages[0].traffic_percent)
+            result.add_decision(
+                "deploy_initial",
+                f"deployed {run.version} at {plan.stages[0].traffic_percent}% traffic",
+            )
+            orchestrator._save_run(result)
+
+        print(result.model_dump_json(indent=2))
+        return 0
+    except Exception as e:
+        print(f"Error starting canary: {e}", file=sys.stderr)
+        return 1
+
+
+def cmd_canary_status(args: argparse.Namespace) -> int:
+    """Show status of a canary deployment."""
+    backend = FakeBackend()
+    orchestrator = CanaryOrchestrator(backend, state_dir=Path(args.state_dir) / "canary")
+
+    run = orchestrator.load_run(args.run_id)
+    if not run:
+        print(f"Run {args.run_id} not found", file=sys.stderr)
+        return 1
+
+    print(run.model_dump_json(indent=2))
+    return 0
+
+
+def cmd_canary_advance(args: argparse.Namespace) -> int:
+    """Advance a canary deployment to the next stage."""
+    plan = CanaryPlan.model_validate_json(Path(args.plan).read_text())
+
+    backend = FakeBackend()
+    orchestrator = CanaryOrchestrator(backend, state_dir=Path(args.state_dir) / "canary")
+
+    run = orchestrator.load_run(args.run_id)
+    if not run:
+        print(f"Run {args.run_id} not found", file=sys.stderr)
+        return 1
+
+    try:
+        result = orchestrator.advance_stage(plan, run)
+        print(result.model_dump_json(indent=2))
+        return 0 if result.status not in ("rolled_back", "failed") else 1
+    except Exception as e:
+        print(f"Error advancing canary: {e}", file=sys.stderr)
+        return 1
+
+
+def cmd_canary_rollback(args: argparse.Namespace) -> int:
+    """Manually rollback a canary deployment."""
+    backend = FakeBackend()
+    orchestrator = CanaryOrchestrator(backend, state_dir=Path(args.state_dir) / "canary")
+
+    run = orchestrator.load_run(args.run_id)
+    if not run:
+        print(f"Run {args.run_id} not found", file=sys.stderr)
+        return 1
+
+    try:
+        result = orchestrator.rollback(run, reason=args.reason)
+        print(result.model_dump_json(indent=2))
+        print(f"\n✓ Rolled back to {run.previous_version}", file=sys.stderr)
+        return 0
+    except Exception as e:
+        print(f"Error during rollback: {e}", file=sys.stderr)
+        return 1
+
+
+def cmd_canary_list(args: argparse.Namespace) -> int:
+    """List all canary deployments."""
+    backend = FakeBackend()
+    orchestrator = CanaryOrchestrator(backend, state_dir=Path(args.state_dir) / "canary")
+
+    runs = orchestrator.list_runs()
+    if not runs:
+        print("No canary runs found")
+        return 0
+
+    print(f"{'ID':<24} {'Status':<15} {'Version':<12} {'Stage':<20} {'Started'}")
+    print("=" * 100)
+
+    for run in runs:
+        started = run.started_at[:19] if run.started_at else "N/A"
+        print(
+            f"{run.id:<24} {run.status.value:<15} {run.version:<12} "
+            f"{run.current_stage or 'N/A':<20} {started}"
+        )
+
+    return 0
+
+
 def cmd_evals_replay(args: argparse.Namespace) -> int:
     golden_dir = Path(args.golden_dir)
     workspace_root = Path(args.workspace_root)
@@ -809,6 +916,41 @@ def build_parser() -> argparse.ArgumentParser:
     export.add_argument("--period", help="period (YYYY-MM or YYYY-MM-DD, default: current month)")
     export.add_argument("--state-dir", default=".factory-runs", help="state directory")
     export.set_defaults(func=cmd_cost_export)
+
+    # Canary deployment commands
+    canary = sub.add_parser("canary", help="manage canary deployments")
+    canary_sub = canary.add_subparsers(dest="canary_action", required=True)
+
+    canary_start = canary_sub.add_parser("start", help="start a new canary deployment")
+    canary_start.add_argument("--plan", required=True, help="path to canary plan JSON")
+    canary_start.add_argument("--run", required=True, help="path to canary run JSON")
+    canary_start.add_argument("--state-dir", default=".factory-runs", help="state directory")
+    canary_start.add_argument("--current-version", help="current deployed version")
+    canary_start.add_argument(
+        "--no-deploy", action="store_true", help="don't deploy, just record state"
+    )
+    canary_start.set_defaults(func=cmd_canary_start)
+
+    canary_status = canary_sub.add_parser("status", help="show canary deployment status")
+    canary_status.add_argument("run_id", help="canary run ID")
+    canary_status.add_argument("--state-dir", default=".factory-runs", help="state directory")
+    canary_status.set_defaults(func=cmd_canary_status)
+
+    canary_advance = canary_sub.add_parser("advance", help="advance to next stage")
+    canary_advance.add_argument("run_id", help="canary run ID")
+    canary_advance.add_argument("--plan", required=True, help="path to canary plan JSON")
+    canary_advance.add_argument("--state-dir", default=".factory-runs", help="state directory")
+    canary_advance.set_defaults(func=cmd_canary_advance)
+
+    canary_rollback = canary_sub.add_parser("rollback", help="manually rollback canary")
+    canary_rollback.add_argument("run_id", help="canary run ID")
+    canary_rollback.add_argument("--reason", required=True, help="reason for rollback")
+    canary_rollback.add_argument("--state-dir", default=".factory-runs", help="state directory")
+    canary_rollback.set_defaults(func=cmd_canary_rollback)
+
+    canary_list = canary_sub.add_parser("list", help="list all canary deployments")
+    canary_list.add_argument("--state-dir", default=".factory-runs", help="state directory")
+    canary_list.set_defaults(func=cmd_canary_list)
 
     return p
 
