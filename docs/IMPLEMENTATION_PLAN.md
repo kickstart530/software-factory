@@ -17,7 +17,7 @@ harness is built first and every agent is built on it.
 | Phase | State | What exists |
 |---|---|---|
 | 0. Foundations | **Partial** | ADR-0001..0008 in [`docs/adr/`](adr/); core contracts in `factory/schemas.py`, exported to `schemas/`; CI workflow. Repository foundations are complete. Cloud IaC and hello-world sandbox environment remain open. |
-| 1. Harness MVP | **Core done** | `factory/harness/`: agent loop, tool registry and sandbox tools, policy, hooks, gates, budgets, checkpoints/resume, escalation, telemetry, model client. 50 tests on a scripted model. Still to do: golden task set, replay runner, OTel exporter. |
+| 1. Harness MVP | **Complete** | `factory/harness/`: agent loop, tool registry and sandbox tools, policy, hooks, gates, budgets, checkpoints/resume, escalation, telemetry (JSONL + OpenTelemetry exporter), model client. `evals/`: golden task set (5 tasks), replay runner, CLI integration. 50+ tests on a scripted model. |
 | 2a. Temporal Supervisor + GitHub App pilot | **In progress** | In-process Supervisor (`factory/orchestrator.py`) for local testing. Temporal workflow/activities implementation in progress. Agent definitions for planner, implementer, reviewer and integrator. Still to do: complete Temporal integration, GitHub App for one pilot repo. |
 | 2b. Policy & Approvals | **In progress** | OPA-compatible policy engine (`factory/harness/policy_engine.py`), human approval service (`factory/harness/approvals.py`) with CLI interface (CLI-first per ADR-0009, no MCP). |
 
@@ -348,10 +348,12 @@ TypeScript only for the approval UI.
 
 ## 13. Immediate next steps
 
-Done: ADR-0001..0008, the core schemas, and the harness MVP core.
+**Phase 1 (Complete)**: ADR-0001..0008, core schemas, harness MVP core, OpenTelemetry exporter, golden task set (5 tasks) + replay runner with CLI integration. See [`docs/EVALS.md`](EVALS.md) for eval documentation.
 
-1. **OpenTelemetry exporter** for the `Tracer` interface, plus transcript storage in object storage — observability must be in place before production load.
-2. **Sandbox runtime + egress proxy**: package the harness as a container image, run it under gVisor on Kubernetes, and prove isolation with a red-team test. Cloud sandboxes must exist before real agent load.
-3. **Golden task set + replay runner** (`evals/`): 50 historical tasks with hidden tests, run through `factory run`, scored by gate pass rate, cost and turns. Real evals require a sandbox environment to be meaningful. This is the Phase 1 exit test.
-4. **Phase 2a** (in progress): move the Supervisor into Temporal workflows/activities (keeping the in-process version for local tests), and add the GitHub App for one pilot repository. Work intake is manual (hand-authored Work Orders) until the Spec agent and full intake flow are built in Phase 4.
-5. **Phase 2b** (in progress): OPA-compatible policy engine, human approval service with CLI interface (CLI-first, no MCP per Roy's constraint—ADR-0009).
+**Phase 1 (Complete)**: ADR-0001..0008, core schemas, harness MVP core, OpenTelemetry exporter, golden task set (5 tasks) + replay runner with CLI integration. See [`docs/EVALS.md`](EVALS.md) for eval documentation.
+
+**Phase 2 in progress**:
+
+1. **Sandbox runtime + egress proxy**: package the harness as a container image, run it under gVisor on Kubernetes, and prove isolation with a red-team test. Cloud sandboxes must exist before real agent load.
+2. **Phase 2a** (in progress): move the Supervisor into Temporal workflows/activities (keeping the in-process version for local tests), and add the GitHub App for one pilot repository. Work intake is manual (hand-authored Work Orders) until the Spec agent and full intake flow are built in Phase 4.
+3. **Phase 2b** (in progress): OPA-compatible policy engine, human approval service with CLI interface (CLI-first, no MCP per Roy's constraint—ADR-0009).

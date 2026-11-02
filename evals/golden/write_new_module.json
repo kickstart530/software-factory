@@ -1,0 +1,63 @@
+{
+  "description": "Create a new module with utility functions",
+  "task": {
+    "id": "golden_004",
+    "work_order_id": "WO_TEST_004",
+    "agent": "implementer",
+    "title": "Add utility module",
+    "instructions": "Create a new utils.py module with a capitalize_words function that capitalizes the first letter of each word in a string."
+  },
+  "agent_spec": {
+    "name": "implementer",
+    "version": 1,
+    "description": "Implements one task",
+    "model_tier": "frontier",
+    "system_prompt": "prompts/implementer.md",
+    "tools": ["write_file", "submit_result"],
+    "budget": {
+      "turns": 20,
+      "usd": 10.0
+    },
+    "gates": [],
+    "max_gate_attempts": 2,
+    "output_schema": "ImplementationResult"
+  },
+  "expected_status": "succeeded",
+  "expected_gates": [],
+  "model_responses": [
+    {
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "toolu_008",
+          "name": "write_file",
+          "input": {
+            "path": "utils.py",
+            "content": "def capitalize_words(text: str) -> str:\n    \"\"\"Capitalize the first letter of each word.\"\"\"\n    return ' '.join(word.capitalize() for word in text.split())\n"
+          }
+        }
+      ],
+      "stop_reason": "tool_use",
+      "model": "test-model",
+      "input_tokens": 1000,
+      "output_tokens": 80
+    },
+    {
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "toolu_009",
+          "name": "submit_result",
+          "input": {
+            "summary": "Created utils.py with capitalize_words function",
+            "files_changed": ["utils.py"]
+          }
+        }
+      ],
+      "stop_reason": "tool_use",
+      "model": "test-model",
+      "input_tokens": 1100,
+      "output_tokens": 40
+    }
+  ]
+}

@@ -1,0 +1,61 @@
+{
+  "description": "Task that exceeds turn budget",
+  "task": {
+    "id": "golden_002",
+    "work_order_id": "WO_TEST_002",
+    "agent": "implementer",
+    "title": "Simple read task",
+    "instructions": "Read the file and report its contents.",
+    "budget": {
+      "turns": 1,
+      "usd": 1.0
+    }
+  },
+  "agent_spec": {
+    "name": "implementer",
+    "version": 1,
+    "description": "Test agent",
+    "model_tier": "frontier",
+    "system_prompt": "prompts/implementer.md",
+    "tools": ["read_file", "submit_result"],
+    "budget": {
+      "turns": 1,
+      "usd": 1.0
+    },
+    "gates": [],
+    "max_gate_attempts": 1,
+    "output_schema": "ImplementationResult"
+  },
+  "expected_status": "failed",
+  "expected_gates": [],
+  "model_responses": [
+    {
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "toolu_004",
+          "name": "read_file",
+          "input": {"path": "app.py"}
+        }
+      ],
+      "stop_reason": "tool_use",
+      "model": "test-model",
+      "input_tokens": 1000,
+      "output_tokens": 50
+    },
+    {
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "toolu_005",
+          "name": "read_file",
+          "input": {"path": "app.py"}
+        }
+      ],
+      "stop_reason": "tool_use",
+      "model": "test-model",
+      "input_tokens": 1100,
+      "output_tokens": 50
+    }
+  ]
+}
