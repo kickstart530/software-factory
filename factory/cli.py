@@ -24,6 +24,14 @@ from factory.harness import (
     ToolContext,
 )
 from factory.harness.approvals import FileBasedApprovalService
+from factory.memory import (
+    FileBackedLessonStore,
+    LessonProposal,
+    LessonQuery,
+    LessonService,
+    LessonStatus,
+    PromotionDecision,
+)
 from factory.schemas import EXPORTED_SCHEMAS, ApprovalDecision, RiskTier, Task
 from factory.secrets import MintRequest, SecretStatus
 from factory.secrets.backends import EnvFileBackend
@@ -275,6 +283,171 @@ def cmd_secrets_cleanup(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_memory_propose(args: argparse.Namespace) -> int:
+    """Propose a new lesson."""
+    store = FileBackedLessonStore(Path(args.state_dir) / "memory")
+    service = LessonService(store)
+
+    proposal = LessonProposal(
+        text=args.text,
+        repo=args.repo,
+        tags=args.tags if args.tags else [],
+        run_id=args.run_id,
+        work_order_id=args.work_order_id,
+        ttl_days=args.ttl_days,
+    )
+
+    lesson = service.propose_lesson(proposal)
+    print(f"✓ Proposed lesson {lesson.id}")
+    print(json.dumps(lesson.model_dump(), indent=2))
+    return 0
+
+
+def cmd_memory_list(args: argparse.Namespace) -> int:
+    """List lessons by status."""
+    store = FileBackedLessonStore(Path(args.state_dir) / "memory")
+    service = LessonService(store)
+
+    status_map = {
+        "candidates": service.list_candidates,
+        "promoted": service.list_promoted,
+        "rejected": service.list_rejected,
+        "expired": service.list_expired,
+    }
+
+    lessons = status_map[args.status]()
+
+    if not lessons:
+        print(f"No {args.status} lessons.")
+        return 0
+
+    for lesson in lessons:
+        print(f"\n{'=' * 80}")
+        print(f"ID:         {lesson.id}")
+        print(f"Status:     {lesson.status.value}")
+        print(f"Created:    {lesson.created_at}")
+        if lesson.repo:
+            print(f"Repo:       {lesson.repo}")
+        if lesson.tags:
+            print(f"Tags:       {', '.join(lesson.tags)}")
+        if lesson.run_id:
+            print(f"Run:        {lesson.run_id}")
+        if lesson.work_order_id:
+            print(f"Work Order: {lesson.work_order_id}")
+        if lesson.reviewed_by:
+            print(f"Reviewed:   {lesson.reviewed_at} by {lesson.reviewed_by}")
+            print(f"Reason:     {lesson.review_reason}")
+        print(f"\nText:\n{lesson.text}")
+
+    print(f"\n{'=' * 80}")
+    print(f"\n{len(lessons)} {args.status} lesson(s)")
+    return 0
+
+
+def cmd_memory_promote(args: argparse.Namespace) -> int:
+    """Promote a candidate lesson."""
+    store = FileBackedLessonStore(Path(args.state_dir) / "memory")
+    service = LessonService(store)
+
+    decision = PromotionDecision(
+        lesson_id=args.lesson_id,
+        approved=True,
+        reason=args.reason,
+        decided_by=args.user or "cli-user",
+    )
+
+    try:
+        lesson = service.promote(decision)
+        print(f"✓ Promoted lesson {lesson.id}")
+        return 0
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+
+def cmd_memory_reject(args: argparse.Namespace) -> int:
+    """Reject a candidate lesson."""
+    store = FileBackedLessonStore(Path(args.state_dir) / "memory")
+    service = LessonService(store)
+
+    decision = PromotionDecision(
+        lesson_id=args.lesson_id,
+        approved=False,
+        reason=args.reason,
+        decided_by=args.user or "cli-user",
+    )
+
+    try:
+        lesson = service.reject(decision)
+        print(f"✗ Rejected lesson {lesson.id}")
+        return 0
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+
+def cmd_memory_query(args: argparse.Namespace) -> int:
+    """Query lessons by repo, tags, and status."""
+    store = FileBackedLessonStore(Path(args.state_dir) / "memory")
+    service = LessonService(store)
+
+    # Parse status argument
+    status = None
+    if args.status != "all":
+        try:
+            status = LessonStatus(args.status)
+        except ValueError:
+            print(f"Error: invalid status '{args.status}'", file=sys.stderr)
+            return 1
+
+    query = LessonQuery(
+        repo=args.repo,
+        tags=args.tags if args.tags else [],
+        status=status,
+        include_expired=args.include_expired,
+        limit=args.limit,
+    )
+
+    lessons = service.query(query)
+
+    if not lessons:
+        print("No matching lessons.")
+        return 0
+
+    for lesson in lessons:
+        print(f"\n{'=' * 80}")
+        print(f"ID:         {lesson.id}")
+        print(f"Status:     {lesson.status.value}")
+        print(f"Created:    {lesson.created_at}")
+        if lesson.repo:
+            print(f"Repo:       {lesson.repo}")
+        if lesson.tags:
+            print(f"Tags:       {', '.join(lesson.tags)}")
+        print(f"\nText:\n{lesson.text}")
+
+    print(f"\n{'=' * 80}")
+    print(f"\n{len(lessons)} matching lesson(s)")
+    return 0
+
+
+def cmd_memory_cleanup(args: argparse.Namespace) -> int:
+    """Expire old candidates and clean up expired lessons."""
+    store = FileBackedLessonStore(Path(args.state_dir) / "memory")
+    service = LessonService(store)
+
+    # First expire any candidates past their TTL
+    expired = service.expire_candidates()
+    if expired:
+        print(f"Expired {len(expired)} candidate(s)")
+
+    # Then delete old expired lessons
+    if args.delete_older_than_days:
+        deleted = service.cleanup_expired(older_than_days=args.delete_older_than_days)
+        print(f"Deleted {deleted} expired lesson(s) older than {args.delete_older_than_days} days")
+
+    return 0
+
+
 def cmd_evals_replay(args: argparse.Namespace) -> int:
     golden_dir = Path(args.golden_dir)
     workspace_root = Path(args.workspace_root)
@@ -495,6 +668,67 @@ def build_parser() -> argparse.ArgumentParser:
     secrets_cleanup = secrets_sub.add_parser("cleanup", help="clean up expired credentials")
     secrets_cleanup.add_argument("--state-dir", default=".factory-runs", help="state directory")
     secrets_cleanup.set_defaults(func=cmd_secrets_cleanup)
+
+    # Memory lessons commands
+    memory = sub.add_parser("memory", help="manage memory lessons")
+    memory_sub = memory.add_subparsers(dest="memory_action", required=True)
+
+    memory_propose = memory_sub.add_parser("propose", help="propose a new lesson")
+    memory_propose.add_argument("--text", required=True, help="lesson text")
+    memory_propose.add_argument("--repo", help="repository URL this lesson applies to")
+    memory_propose.add_argument("--tags", nargs="+", help="tags for categorization")
+    memory_propose.add_argument("--run-id", help="cloud agent run that generated this")
+    memory_propose.add_argument("--work-order-id", help="work order that generated this")
+    memory_propose.add_argument("--ttl-days", type=int, default=90, help="days until expiry")
+    memory_propose.add_argument("--state-dir", default=".factory-runs", help="state directory")
+    memory_propose.set_defaults(func=cmd_memory_propose)
+
+    memory_list = memory_sub.add_parser("list", help="list lessons by status")
+    memory_list.add_argument(
+        "status",
+        choices=["candidates", "promoted", "rejected", "expired"],
+        help="lesson status to list",
+    )
+    memory_list.add_argument("--state-dir", default=".factory-runs", help="state directory")
+    memory_list.set_defaults(func=cmd_memory_list)
+
+    memory_promote = memory_sub.add_parser("promote", help="promote a candidate lesson")
+    memory_promote.add_argument("lesson_id", help="lesson ID to promote")
+    memory_promote.add_argument("--reason", required=True, help="reason for promotion")
+    memory_promote.add_argument("--user", help="user name (defaults to cli-user)")
+    memory_promote.add_argument("--state-dir", default=".factory-runs", help="state directory")
+    memory_promote.set_defaults(func=cmd_memory_promote)
+
+    memory_reject = memory_sub.add_parser("reject", help="reject a candidate lesson")
+    memory_reject.add_argument("lesson_id", help="lesson ID to reject")
+    memory_reject.add_argument("--reason", required=True, help="reason for rejection")
+    memory_reject.add_argument("--user", help="user name (defaults to cli-user)")
+    memory_reject.add_argument("--state-dir", default=".factory-runs", help="state directory")
+    memory_reject.set_defaults(func=cmd_memory_reject)
+
+    memory_query = memory_sub.add_parser("query", help="query lessons")
+    memory_query.add_argument("--repo", help="filter by repository URL")
+    memory_query.add_argument("--tags", nargs="+", help="filter by tags (must have all)")
+    memory_query.add_argument(
+        "--status",
+        default="promoted",
+        help="filter by status (default: promoted, use 'all' for any status)",
+    )
+    memory_query.add_argument(
+        "--include-expired", action="store_true", help="include expired candidates"
+    )
+    memory_query.add_argument("--limit", type=int, default=100, help="max results")
+    memory_query.add_argument("--state-dir", default=".factory-runs", help="state directory")
+    memory_query.set_defaults(func=cmd_memory_query)
+
+    memory_cleanup = memory_sub.add_parser("cleanup", help="expire and clean up old lessons")
+    memory_cleanup.add_argument(
+        "--delete-older-than-days",
+        type=int,
+        help="delete expired lessons older than N days",
+    )
+    memory_cleanup.add_argument("--state-dir", default=".factory-runs", help="state directory")
+    memory_cleanup.set_defaults(func=cmd_memory_cleanup)
 
     for name, func, help_ in (
         ("run", cmd_run, "run one task with its agent"),
