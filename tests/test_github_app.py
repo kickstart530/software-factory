@@ -3,6 +3,7 @@
 import hashlib
 import hmac
 import json
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -96,7 +97,7 @@ def test_webhook_invalid_signature(client):
 
 
 def test_webhook_issue_labeled(client):
-    """Test webhook for issue labeled event."""
+    """Test webhook for issue labeled event (no Temporal client)."""
     payload = {
         "action": "labeled",
         "issue": {
@@ -126,12 +127,12 @@ def test_webhook_issue_labeled(client):
     )
 
     assert response.status_code == 200
-    assert response.json["status"] == "submitted"
+    assert response.json["status"] == "accepted"
     assert response.json["work_order_id"] == "WO-test-repo-123"
 
 
 def test_webhook_issue_comment_factory_command(client):
-    """Test webhook for /factory command in issue comment."""
+    """Test webhook for /factory command in issue comment (no Temporal client)."""
     payload = {
         "action": "created",
         "issue": {
@@ -164,7 +165,7 @@ def test_webhook_issue_comment_factory_command(client):
     )
 
     assert response.status_code == 200
-    assert response.json["status"] == "submitted"
+    assert response.json["status"] == "accepted"
     assert response.json["work_order_id"] == "WO-test-repo-456"
 
 
@@ -186,3 +187,63 @@ def test_webhook_unhandled_event(client):
 
     assert response.status_code == 200
     assert response.json == {"message": "received"}
+
+
+def test_webhook_with_temporal_client():
+    """Test webhook with mocked Temporal client."""
+    # Create mock Temporal client
+    mock_client = MagicMock()
+    mock_handle = MagicMock()
+    mock_handle.first_execution_run_id = "test-run-id"
+    mock_client.start_workflow = AsyncMock(return_value=mock_handle)
+    mock_client._task_queue = "test-queue"
+
+    def temporal_client_factory():
+        return mock_client
+
+    app = create_webhook_app(
+        temporal_client_factory=temporal_client_factory,
+        webhook_secret="test-secret",
+    )
+    client = app.test_client()
+
+    payload = {
+        "action": "labeled",
+        "issue": {
+            "number": 789,
+            "title": "Test with Temporal",
+            "body": "Should start workflow",
+            "user": {"login": "testuser"},
+        },
+        "label": {"name": "factory:build"},
+        "repository": {
+            "full_name": "test/repo",
+            "clone_url": "https://github.com/test/repo.git",
+            "default_branch": "main",
+        },
+    }
+    payload_bytes = json.dumps(payload).encode()
+    signature = "sha256=" + hmac.new(b"test-secret", payload_bytes, hashlib.sha256).hexdigest()
+
+    response = client.post(
+        "/webhooks/github",
+        data=payload_bytes,
+        headers={
+            "X-GitHub-Event": "issues",
+            "X-Hub-Signature-256": signature,
+            "Content-Type": "application/json",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json["status"] == "submitted"
+    assert response.json["work_order_id"] == "WO-test-repo-789"
+    assert response.json["workflow_id"] == "factory-WO-test-repo-789"
+    assert "workflow_run_id" in response.json
+
+    # Verify workflow was started
+    mock_client.start_workflow.assert_called_once()
+    call_args = mock_client.start_workflow.call_args
+    assert call_args[0][0] == "execute_task_dag"
+    assert call_args[1]["id"] == "factory-WO-test-repo-789"
+    assert call_args[1]["task_queue"] == "test-queue"

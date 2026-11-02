@@ -48,7 +48,7 @@ class WebhookReceiver:
         self.temporal_client_factory = temporal_client_factory
         self.webhook_secret = webhook_secret
 
-    def handle_issues(self, payload: dict[str, Any]) -> dict[str, Any] | None:
+    async def handle_issues(self, payload: dict[str, Any]) -> dict[str, Any] | None:
         """Handle issues events (opened, labeled, etc.).
 
         Phase 2a: respond to issues labeled "factory:build" or with /factory commands.
@@ -65,11 +65,11 @@ class WebhookReceiver:
         if action == "labeled":
             label = payload.get("label", {}).get("name")
             if label == "factory:build":
-                return self._submit_work_order_from_issue(payload)
+                return await self._submit_work_order_from_issue(payload)
 
         return None
 
-    def handle_issue_comment(self, payload: dict[str, Any]) -> dict[str, Any] | None:
+    async def handle_issue_comment(self, payload: dict[str, Any]) -> dict[str, Any] | None:
         """Handle issue comment events.
 
         Phase 2a: respond to /factory commands.
@@ -89,7 +89,7 @@ class WebhookReceiver:
 
         # Check for /factory command
         if body.startswith("/factory build") or body.startswith("/factory"):
-            return self._submit_work_order_from_issue(payload)
+            return await self._submit_work_order_from_issue(payload)
 
         return None
 
@@ -126,7 +126,7 @@ class WebhookReceiver:
         logger.info(f"Check run completed: {conclusion}")
         return None
 
-    def _submit_work_order_from_issue(self, payload: dict[str, Any]) -> dict[str, Any]:
+    async def _submit_work_order_from_issue(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Submit a Work Order to Temporal based on an issue.
 
         Phase 2a: creates a hand-authored Work Order structure from issue title/body.
@@ -138,6 +138,8 @@ class WebhookReceiver:
         Returns:
             Response dict with workflow ID
         """
+        from github_app.temporal_client import submit_work_order_to_temporal
+
         issue = payload.get("issue", {})
         repo = payload.get("repository", {})
 
@@ -173,18 +175,33 @@ class WebhookReceiver:
 
         logger.info(f"Submitting Work Order {work_order['id']} to Temporal")
 
-        # TODO: Actually submit to Temporal
-        # This is a stub for Phase 2a - full implementation requires:
-        # 1. Temporal client connection
-        # 2. Start ExecuteTaskDAGWorkflow (after Planner creates the DAG)
-        # 3. Return workflow handle
+        # Submit to Temporal via the client factory
+        temporal_client = self.temporal_client_factory()
+        if temporal_client is None:
+            logger.warning("Temporal client not configured - work order not submitted")
+            return {
+                "status": "accepted",
+                "work_order_id": work_order["id"],
+                "message": "Work Order created (Temporal client not configured)",
+            }
 
-        # For now, return a success response
-        return {
-            "status": "submitted",
-            "work_order_id": work_order["id"],
-            "message": "Work Order created (Phase 2a stub - Temporal integration pending)",
-        }
+        try:
+            # Get task queue from client (set by server.py)
+            task_queue = getattr(temporal_client, "_task_queue", "factory-tasks")
+
+            result = await submit_work_order_to_temporal(temporal_client, work_order, task_queue)
+
+            logger.info(f"Work Order {work_order['id']} submitted successfully")
+            return result
+
+        except Exception as e:
+            logger.error(f"Failed to submit Work Order to Temporal: {e}", exc_info=True)
+            return {
+                "status": "error",
+                "work_order_id": work_order["id"],
+                "error": str(e),
+                "message": "Failed to submit Work Order to Temporal",
+            }
 
 
 def create_webhook_app(
@@ -204,6 +221,8 @@ def create_webhook_app(
         >>> app = create_webhook_app(temporal_client_factory, secret)
         >>> app.run(host="0.0.0.0", port=8080)
     """
+    import asyncio
+
     app = Flask(__name__)
 
     # For Phase 2a, allow running without Temporal (logs only)
@@ -227,12 +246,12 @@ def create_webhook_app(
 
         logger.info(f"Received {event_type} event")
 
-        # Dispatch to handler
+        # Dispatch to handler (using asyncio.run for async handlers)
         result = None
         if event_type == "issues":
-            result = receiver.handle_issues(payload)
+            result = asyncio.run(receiver.handle_issues(payload))
         elif event_type == "issue_comment":
-            result = receiver.handle_issue_comment(payload)
+            result = asyncio.run(receiver.handle_issue_comment(payload))
         elif event_type == "pull_request":
             result = receiver.handle_pull_request(payload)
         elif event_type == "check_run":
