@@ -7,16 +7,15 @@ from __future__ import annotations
 
 import json
 import time
-from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Protocol
 
 try:
     from opentelemetry import trace
+    from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+    from opentelemetry.sdk.resources import Resource
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
-    from opentelemetry.sdk.resources import Resource
-    from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 
     _OTEL_AVAILABLE = True
 except ImportError:
@@ -81,10 +80,9 @@ class OtelTracer:
         import os
 
         endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
-        if endpoint:
-            exporter = OTLPSpanExporter(endpoint=endpoint)
-        else:
-            exporter = ConsoleSpanExporter()
+        exporter = (
+            OTLPSpanExporter(endpoint=endpoint) if endpoint else ConsoleSpanExporter()
+        )
 
         provider.add_span_processor(BatchSpanProcessor(exporter))
         trace.set_tracer_provider(provider)

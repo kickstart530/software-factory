@@ -25,7 +25,7 @@ from factory.harness import (
     ToolContext,
 )
 from factory.harness.model import ModelClient, ModelRequest
-from factory.schemas import Budget, RiskTier, Task, TaskResult, TaskStatus
+from factory.schemas import RiskTier, Task, TaskResult, TaskStatus
 
 
 @dataclass

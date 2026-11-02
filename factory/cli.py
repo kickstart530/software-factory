@@ -7,6 +7,7 @@ import json
 import sys
 from pathlib import Path
 
+from evals import ReplayRunner, load_golden_tasks
 from factory.agents.spec import AgentCatalog
 from factory.harness import (
     AgentHarness,
@@ -19,7 +20,6 @@ from factory.harness import (
 )
 from factory.harness.approvals import FileBasedApprovalService
 from factory.schemas import EXPORTED_SCHEMAS, ApprovalDecision, RiskTier, Task
-from evals import ReplayRunner, load_golden_tasks
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 

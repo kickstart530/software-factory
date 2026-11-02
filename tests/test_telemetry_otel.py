@@ -1,5 +1,7 @@
 """Tests for OpenTelemetry tracer."""
 
+import importlib.util
+
 import pytest
 
 from factory.harness.telemetry import OtelTracer
@@ -7,19 +9,15 @@ from factory.harness.telemetry import OtelTracer
 
 def test_otel_tracer_requires_sdk():
     """OtelTracer raises ImportError when OpenTelemetry SDK is not installed."""
-    try:
-        import opentelemetry
+    if importlib.util.find_spec("opentelemetry") is not None:
         pytest.skip("OpenTelemetry is installed; this test requires it to be missing")
-    except ImportError:
-        with pytest.raises(ImportError, match="OpenTelemetry SDK not installed"):
-            OtelTracer()
+    with pytest.raises(ImportError, match="OpenTelemetry SDK not installed"):
+        OtelTracer()
 
 
 def test_otel_tracer_basic_events(tmp_path, monkeypatch):
     """OtelTracer exports basic events without crashing."""
-    try:
-        import opentelemetry
-    except ImportError:
+    if importlib.util.find_spec("opentelemetry") is None:
         pytest.skip("OpenTelemetry SDK not installed")
     
     monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
@@ -39,9 +37,7 @@ def test_otel_tracer_basic_events(tmp_path, monkeypatch):
 
 def test_otel_tracer_handles_events_without_task_id(tmp_path, monkeypatch):
     """OtelTracer handles standalone events without task_id."""
-    try:
-        import opentelemetry
-    except ImportError:
+    if importlib.util.find_spec("opentelemetry") is None:
         pytest.skip("OpenTelemetry SDK not installed")
     
     monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
@@ -59,9 +55,7 @@ def test_otel_tracer_handles_events_without_task_id(tmp_path, monkeypatch):
 
 def test_otel_tracer_respects_endpoint_env_var(tmp_path, monkeypatch):
     """OtelTracer uses OTLP exporter when endpoint is set."""
-    try:
-        import opentelemetry
-    except ImportError:
+    if importlib.util.find_spec("opentelemetry") is None:
         pytest.skip("OpenTelemetry SDK not installed")
     
     monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
