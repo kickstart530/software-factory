@@ -5,6 +5,7 @@ deployed change. Every agent is a configuration of one shared **agent harness**:
 sandboxed tools, policy checks, verification gates, budgets, checkpoints and
 escalation to humans.
 
+- [Getting Started](docs/GETTING_STARTED.md): setup, CLI usage, work submission, and architecture overview
 - [Implementation Plan](docs/IMPLEMENTATION_PLAN.md): architecture, harness, agent roster, roadmap, status
 - [Architecture Decision Records](docs/adr/README.md)
 
