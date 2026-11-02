@@ -34,6 +34,7 @@ from factory.memory import (
     PromotionDecision,
 )
 from factory.release import CanaryOrchestrator, CanaryPlan, CanaryRun, FakeBackend
+from factory.repo_config import EffectiveAgentConfig, RepoConfig
 from factory.schemas import EXPORTED_SCHEMAS, ApprovalDecision, RiskTier, Task
 from factory.secrets import MintRequest, SecretStatus
 from factory.secrets.backends import EnvFileBackend
@@ -60,23 +61,48 @@ def cmd_agents_validate(args: argparse.Namespace) -> int:
 def _harness(args: argparse.Namespace, task: Task) -> AgentHarness:
     catalog = AgentCatalog(Path(args.agents))
     spec = catalog[task.agent]
+    workspace = Path(args.workspace)
     state_dir = Path(args.state_dir)
     config = ModelConfig.load(Path(args.models))
     experiments_path = Path(args.experiments)
     experiments = (
         ExperimentConfig.load(experiments_path) if experiments_path.exists() else ExperimentConfig()
     )
+
+    # Apply repo-level overrides to the agent spec
+    repo_cfg = RepoConfig.load(workspace)
+    effective_budget = repo_cfg.apply_to_budget(task.agent, spec.budget)
+    effective_tier = repo_cfg.get_model_tier(task.agent, spec.model_tier)
+    effective_gates = repo_cfg.get_gates(task.agent, spec.gates)
+    effective_max_attempts = repo_cfg.get_max_gate_attempts(task.agent, spec.max_gate_attempts)
+
+    # Create a modified spec with effective values
+    from factory.agents.spec import AgentSpec
+
+    effective_spec = AgentSpec(
+        name=spec.name,
+        version=spec.version,
+        description=spec.description,
+        model_tier=effective_tier,
+        system_prompt=spec.system_prompt,
+        tools=spec.tools,
+        policy=spec.policy,
+        budget=effective_budget,
+        gates=effective_gates,
+        max_gate_attempts=effective_max_attempts,
+        output_schema=spec.output_schema,
+        sub_agents=spec.sub_agents,
+    )
+
     deps = HarnessDeps(
         model=AnthropicModelClient(config, experiments=experiments),
         model_config=config,
         checkpoints=FileCheckpointStore(state_dir / "checkpoints"),
         tracer=JsonlTracer(state_dir / "traces" / f"{task.id}.jsonl", task_id=task.id),
     )
-    ctx = ToolContext(
-        workspace=Path(args.workspace), artifacts_dir=state_dir / "artifacts" / task.id
-    )
+    ctx = ToolContext(workspace=workspace, artifacts_dir=state_dir / "artifacts" / task.id)
     return AgentHarness(
-        spec, catalog.system_prompt(spec), deps, ctx, risk_tier=RiskTier(args.risk_tier)
+        effective_spec, catalog.system_prompt(spec), deps, ctx, risk_tier=RiskTier(args.risk_tier)
     )
 
 
@@ -557,6 +583,131 @@ def cmd_canary_list(args: argparse.Namespace) -> int:
             f"{run.current_stage or 'N/A':<20} {started}"
         )
 
+
+def cmd_repo_config_validate(args: argparse.Namespace) -> int:
+    """Validate .factory/repo.yaml in a workspace."""
+    workspace = Path(args.workspace)
+    config_path = workspace / ".factory" / "repo.yaml"
+
+    if not config_path.is_file():
+        print(f"No .factory/repo.yaml found in {workspace} (using factory defaults)")
+        return 0
+
+    try:
+        repo_cfg = RepoConfig.load(workspace)
+        print(f"✓ Valid repo config from {config_path}")
+        if repo_cfg.description:
+            print(f"  Description: {repo_cfg.description}")
+        if repo_cfg.conventions:
+            print(f"  Conventions: {repo_cfg.conventions}")
+        if repo_cfg.agents:
+            print(f"  Agent overrides: {', '.join(sorted(repo_cfg.agents.keys()))}")
+        else:
+            print("  No agent overrides (using factory defaults)")
+        return 0
+    except Exception as e:
+        print(f"✗ Invalid repo config: {e}", file=sys.stderr)
+        return 1
+
+
+def cmd_repo_config_show(args: argparse.Namespace) -> int:
+    """Show effective config for an agent in a workspace."""
+    workspace = Path(args.workspace)
+    agent_name = args.agent
+
+    # Load global agent spec
+    catalog = AgentCatalog(Path(args.agents))
+    try:
+        spec = catalog[agent_name]
+    except KeyError:
+        print(f"✗ Agent {agent_name!r} not found in {args.agents}", file=sys.stderr)
+        print(f"  Available agents: {', '.join(catalog.names())}", file=sys.stderr)
+        return 1
+
+    # Load repo config
+    repo_cfg = RepoConfig.load(workspace)
+
+    # Compute effective config
+    effective_tier = repo_cfg.get_model_tier(agent_name, spec.model_tier)
+    effective_budget = repo_cfg.apply_to_budget(agent_name, spec.budget)
+    effective_gates = repo_cfg.get_gates(agent_name, spec.gates)
+    effective_max_attempts = repo_cfg.get_max_gate_attempts(agent_name, spec.max_gate_attempts)
+
+    # Determine source
+    has_override = agent_name in repo_cfg.agents
+    if not has_override:
+        source = "default"
+    else:
+        override = repo_cfg.agents[agent_name]
+        has_any = any(
+            [
+                override.model_tier is not None,
+                override.budget is not None,
+                override.gates is not None,
+                override.max_gate_attempts is not None,
+            ]
+        )
+        source = "repo-override" if has_any else "default"
+
+    effective = EffectiveAgentConfig(
+        agent_name=agent_name,
+        model_tier=effective_tier,
+        budget=effective_budget,
+        gates=effective_gates,
+        max_gate_attempts=effective_max_attempts,
+        conventions=repo_cfg.conventions,
+        source=source,
+    )
+
+    if args.json:
+        print(effective.model_dump_json(indent=2))
+    else:
+        print(f"Effective configuration for agent '{agent_name}' in {workspace}")
+        print(f"{'=' * 80}")
+        print(f"Source:            {effective.source}")
+        print(f"Model tier:        {effective.model_tier}")
+        print("Budget:")
+        print(f"  tokens:          {effective.budget.tokens:,}")
+        print(f"  usd:             ${effective.budget.usd:.2f}")
+        print(f"  wall_clock_s:    {effective.budget.wall_clock_s:,}s")
+        print(f"  turns:           {effective.budget.turns}")
+        print(f"  tool_calls:      {effective.budget.tool_calls}")
+        print(f"Gates:             {', '.join(effective.gates) if effective.gates else '(none)'}")
+        print(f"Max gate attempts: {effective.max_gate_attempts}")
+        if effective.conventions:
+            print(f"Conventions:       {effective.conventions}")
+
+        # Show what was overridden
+        if has_override:
+            print(f"\n{'=' * 80}")
+            print("Overrides from .factory/repo.yaml:")
+            override = repo_cfg.agents[agent_name]
+            if override.model_tier is not None:
+                print(f"  model_tier: {spec.model_tier} → {override.model_tier}")
+            if override.budget:
+                print("  budget overrides:")
+                if override.budget.tokens is not None:
+                    print(f"    tokens: {spec.budget.tokens:,} → {override.budget.tokens:,}")
+                if override.budget.usd is not None:
+                    print(f"    usd: ${spec.budget.usd:.2f} → ${override.budget.usd:.2f}")
+                if override.budget.wall_clock_s is not None:
+                    print(
+                        f"    wall_clock_s: {spec.budget.wall_clock_s:,}s → "
+                        f"{override.budget.wall_clock_s:,}s"
+                    )
+                if override.budget.turns is not None:
+                    print(f"    turns: {spec.budget.turns} → {override.budget.turns}")
+                if override.budget.tool_calls is not None:
+                    print(
+                        f"    tool_calls: {spec.budget.tool_calls} → {override.budget.tool_calls}"
+                    )
+            if override.gates is not None:
+                print(f"  gates: {spec.gates} → {override.gates}")
+            if override.max_gate_attempts is not None:
+                print(
+                    f"  max_gate_attempts: {spec.max_gate_attempts} → {override.max_gate_attempts}"
+                )
+
     return 0
 
 
@@ -806,6 +957,22 @@ def build_parser() -> argparse.ArgumentParser:
     a = sub.add_parser("agents", help="validate agent definitions")
     a.add_argument("action", choices=["validate"])
     a.set_defaults(func=cmd_agents_validate)
+
+    # Repo config commands
+    repo = sub.add_parser("repo-config", help="validate and inspect per-repo configuration")
+    repo_sub = repo.add_subparsers(dest="repo_action", required=True)
+
+    repo_validate = repo_sub.add_parser("validate", help="validate .factory/repo.yaml")
+    repo_validate.add_argument("--workspace", required=True, help="repository checkout path")
+    repo_validate.set_defaults(func=cmd_repo_config_validate)
+
+    repo_show = repo_sub.add_parser(
+        "show", help="show effective config for an agent in a workspace"
+    )
+    repo_show.add_argument("--workspace", required=True, help="repository checkout path")
+    repo_show.add_argument("--agent", required=True, help="agent name")
+    repo_show.add_argument("--json", action="store_true", help="output as JSON")
+    repo_show.set_defaults(func=cmd_repo_config_show)
 
     # Approval management commands
     approve = sub.add_parser("approve", help="manage approval requests")
