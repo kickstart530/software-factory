@@ -264,7 +264,7 @@ def cmd_golden_generate(args: argparse.Namespace) -> int:
     print(f"  Agent: {candidate.task['agent']}")
     print(f"  Complexity: {candidate.metadata['complexity']['complexity']}")
     print(f"  Saved to: {filepath}")
-    print(f"\nReview with: factory golden list")
+    print("\nReview with: factory golden list")
     print(f"Promote with: factory golden promote {candidate.id} --reviewer <name>")
 
     return 0
@@ -387,8 +387,8 @@ def cmd_golden_promote(args: argparse.Namespace) -> int:
         print(f"  Promoted by: {args.reviewer}")
         print(f"  Golden task: {golden_path}")
         print(
-            f"\nNote: This golden task has placeholder model responses. "
-            f"Run it once to capture real responses."
+            "\nNote: This golden task has placeholder model responses. "
+            "Run it once to capture real responses."
         )
         return 0
     except Exception as e:
@@ -928,213 +928,6 @@ def cmd_repo_config_show(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_golden_generate(args: argparse.Namespace) -> int:
-    """Generate a candidate golden task from PR fixture."""
-    import json
-    from pathlib import Path
-
-    # Load PR metadata from fixture file
-    pr_file = Path(args.pr_fixture)
-    if not pr_file.exists():
-        print(f"Error: PR fixture file not found: {pr_file}", file=sys.stderr)
-        return 1
-
-    try:
-        pr_data = json.loads(pr_file.read_text())
-        pr_metadata = PRMetadata(**pr_data)
-    except Exception as e:
-        print(f"Error: Failed to parse PR fixture: {e}", file=sys.stderr)
-        return 1
-
-    # Generate candidate
-    try:
-        agent_catalog = Path(args.agents) if args.agents else None
-        candidate = generate_candidate_task(
-            pr_metadata,
-            agent_catalog_path=agent_catalog,
-            custom_agent=args.agent,
-        )
-    except Exception as e:
-        print(f"Error: Failed to generate candidate: {e}", file=sys.stderr)
-        return 1
-
-    # Save candidate
-    candidates_dir = Path(args.candidates_dir)
-    filepath = save_candidate(candidate, candidates_dir)
-
-    print(f"✓ Generated candidate golden task from PR #{pr_metadata.number}")
-    print(f"  ID: {candidate.id}")
-    print(f"  Agent: {candidate.task['agent']}")
-    print(f"  Complexity: {candidate.metadata['complexity']['complexity']}")
-    print(f"  Saved to: {filepath}")
-    print(f"\nReview with: factory golden list")
-    print(f"Promote with: factory golden promote {candidate.id} --reviewer <name>")
-
-    return 0
-
-
-def cmd_golden_list(args: argparse.Namespace) -> int:
-    """List all candidate golden tasks."""
-    from pathlib import Path
-
-    candidates_dir = Path(args.candidates_dir)
-    if not candidates_dir.exists():
-        print("No candidates directory found.")
-        return 0
-
-    candidates = []
-    for filepath in sorted(candidates_dir.glob("*.json")):
-        try:
-            candidate = load_candidate(filepath)
-            candidates.append((filepath, candidate))
-        except Exception as e:
-            print(f"Warning: Failed to load {filepath}: {e}", file=sys.stderr)
-
-    if not candidates:
-        print(f"No candidate golden tasks found in {candidates_dir}")
-        return 0
-
-    # Filter by status if specified
-    if args.status:
-        candidates = [(f, c) for f, c in candidates if c.status == args.status]
-
-    if not candidates:
-        print(f"No candidates with status '{args.status}' found.")
-        return 0
-
-    print(f"\n{'=' * 80}")
-    print(f"Candidate Golden Tasks ({len(candidates)} found)")
-    print(f"{'=' * 80}\n")
-
-    for filepath, candidate in candidates:
-        status_mark = {
-            "pending_review": "⏳",
-            "approved": "✓",
-            "rejected": "✗",
-        }.get(candidate.status, "?")
-
-        print(f"{status_mark} {candidate.id}")
-        print(f"  PR #{candidate.pr_number}: {candidate.task['title']}")
-        print(f"  Agent: {candidate.task['agent']}")
-        print(f"  Status: {candidate.status}")
-        print(f"  Created: {candidate.created_at}")
-        if candidate.reviewer:
-            print(f"  Reviewed by: {candidate.reviewer} at {candidate.reviewed_at}")
-        if candidate.review_notes:
-            print(f"  Notes: {candidate.review_notes}")
-        print(f"  File: {filepath.name}")
-        print()
-
-    if args.json:
-        json_output = [
-            {
-                "id": c.id,
-                "pr_number": c.pr_number,
-                "title": c.task["title"],
-                "agent": c.task["agent"],
-                "status": c.status,
-                "created_at": c.created_at,
-                "reviewer": c.reviewer,
-                "reviewed_at": c.reviewed_at,
-                "filepath": str(f),
-            }
-            for f, c in candidates
-        ]
-        Path(args.json).write_text(json.dumps(json_output, indent=2))
-        print(f"Wrote listing to {args.json}")
-
-    return 0
-
-
-def cmd_golden_promote(args: argparse.Namespace) -> int:
-    """Promote a candidate golden task to the active set."""
-    from pathlib import Path
-
-    candidates_dir = Path(args.candidates_dir)
-    golden_dir = Path(args.golden_dir)
-
-    # Find candidate by ID
-    candidate = None
-    for filepath in candidates_dir.glob("*.json"):
-        try:
-            c = load_candidate(filepath)
-            if c.id == args.candidate_id:
-                candidate = c
-                break
-        except Exception:
-            continue
-
-    if not candidate:
-        print(f"Error: Candidate {args.candidate_id} not found", file=sys.stderr)
-        return 1
-
-    if candidate.status == "rejected":
-        print(
-            f"Error: Cannot promote rejected candidate. "
-            f"Rejected by {candidate.reviewer}: {candidate.review_notes}",
-            file=sys.stderr,
-        )
-        return 1
-
-    # Promote
-    try:
-        golden_path = promote_candidate(
-            candidate,
-            golden_dir,
-            candidates_dir,
-            args.reviewer,
-            args.notes,
-        )
-        print(f"✓ Promoted candidate {candidate.id} to active golden set")
-        print(f"  PR #{candidate.pr_number}: {candidate.task['title']}")
-        print(f"  Promoted by: {args.reviewer}")
-        print(f"  Golden task: {golden_path}")
-        print(
-            f"\nNote: This golden task has placeholder model responses. "
-            f"Run it once to capture real responses."
-        )
-        return 0
-    except Exception as e:
-        print(f"Error: Failed to promote candidate: {e}", file=sys.stderr)
-        return 1
-
-
-def cmd_golden_reject(args: argparse.Namespace) -> int:
-    """Reject a candidate golden task."""
-    from pathlib import Path
-
-    candidates_dir = Path(args.candidates_dir)
-
-    # Find candidate by ID
-    candidate = None
-    for filepath in candidates_dir.glob("*.json"):
-        try:
-            c = load_candidate(filepath)
-            if c.id == args.candidate_id:
-                candidate = c
-                break
-        except Exception:
-            continue
-
-    if not candidate:
-        print(f"Error: Candidate {args.candidate_id} not found", file=sys.stderr)
-        return 1
-
-    if candidate.status == "rejected":
-        print(f"Candidate {args.candidate_id} is already rejected")
-        return 0
-
-    # Reject
-    try:
-        reject_candidate(candidate, candidates_dir, args.reviewer, args.reason)
-        print(f"✗ Rejected candidate {candidate.id}")
-        print(f"  PR #{candidate.pr_number}: {candidate.task['title']}")
-        print(f"  Rejected by: {args.reviewer}")
-        print(f"  Reason: {args.reason}")
-        return 0
-    except Exception as e:
-        print(f"Error: Failed to reject candidate: {e}", file=sys.stderr)
-        return 1
 def cmd_evals_replay(args: argparse.Namespace) -> int:
     golden_dir = Path(args.golden_dir)
     workspace_root = Path(args.workspace_root)
