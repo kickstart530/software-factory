@@ -75,6 +75,21 @@ class RulePolicy:
             for pattern, rule in self.denied_commands:
                 if re.search(pattern, cmd):
                     return PolicyDecision(False, f"command denied by policy ({rule})", rule)
+            # P0 fix: protected-path rules must apply to run_command shell escapes
+            for min_tier, patterns in self.protected_paths.items():
+                if _TIER_ORDER.index(ctx.risk_tier) >= _TIER_ORDER.index(min_tier):
+                    continue
+                for pattern in patterns:
+                    # For commands, extract key path fragments and check if they appear
+                    # Strip regex anchors and special chars to get the core path
+                    core_path = re.sub(r"[\\^$().|]", "", pattern).strip("/")
+                    if core_path and core_path in cmd:
+                        return PolicyDecision(
+                            False,
+                            f"command touches protected path '{core_path}'; changing it needs "
+                            f"a {min_tier} risk Work Order. Escalate if the change is required.",
+                            "protected-path-in-command",
+                        )
         if tool.mutates and ctx.rel_path is not None:
             path = ctx.rel_path
             for min_tier, patterns in self.protected_paths.items():

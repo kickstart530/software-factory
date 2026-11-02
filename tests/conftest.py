@@ -126,7 +126,7 @@ def build(tmp_path, workspace, model_config):
             else GateRunner(
                 {
                     "unit_tests": GateCommand(
-                        command="python -B -c 'import app; assert app.add(2, 3) == 5'"
+                        command="python3 -B -c 'import app; assert app.add(2, 3) == 5'"
                     )
                 }
             )

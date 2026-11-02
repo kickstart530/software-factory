@@ -19,7 +19,16 @@ TaskRunner = Callable[..., TaskResult]
 
 
 class Supervisor:
+    """In-process supervisor for local runs.
+
+    P0: When moved to Temporal (Phase 2), TaskRunner MUST be called within activity
+    heartbeats to enable checkpoint/resume on pre-emption. The Temporal activity should
+    heartbeat with checkpoint_id after each harness turn.
+    """
+
     def __init__(self, run_task: TaskRunner, max_parallel: int = 4, tracer: Tracer | None = None):
+        if run_task is None:
+            raise ValueError("run_task (TaskRunner) is required and must not be None")
         self.run_task = run_task
         self.max_parallel = max_parallel
         self.tracer = tracer or NullTracer()

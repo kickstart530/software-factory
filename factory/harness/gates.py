@@ -57,19 +57,54 @@ def _changed_files(workspace: Path) -> list[Path]:
 
 
 def secret_scan(workspace: Path) -> GateResult:
+    """P0 fix: scan full branch diff vs base (main), not only dirty files."""
     start = time.monotonic()
     hits = []
+
+    # First, get the merge-base with main
+    base_proc = subprocess.run(
+        ["git", "merge-base", "HEAD", "origin/main"],
+        cwd=workspace,
+        capture_output=True,
+        text=True,
+    )
+
+    if base_proc.returncode == 0:
+        base_ref = base_proc.stdout.strip()
+        # Get diff of committed changes
+        diff_proc = subprocess.run(
+            ["git", "diff", "--name-only", base_ref, "HEAD"],
+            cwd=workspace,
+            capture_output=True,
+            text=True,
+        )
+
+        if diff_proc.returncode == 0:
+            # Scan committed changes
+            for line in diff_proc.stdout.splitlines():
+                path = workspace / line
+                if path.is_file():
+                    try:
+                        found = find_secrets(path.read_text())
+                        if found:
+                            hits.append(f"{line}: {', '.join(found)}")
+                    except (UnicodeDecodeError, OSError):
+                        continue
+
+    # Also scan uncommitted changes (git status)
     for p in _changed_files(workspace):
         try:
             found = find_secrets(p.read_text())
+            if found:
+                rel = str(p.relative_to(workspace))
+                hits.append(f"{rel} (uncommitted): {', '.join(found)}")
         except (UnicodeDecodeError, OSError):
             continue
-        if found:
-            hits.append(f"{p.relative_to(workspace)}: {', '.join(found)}")
+
     return GateResult(
         name="secret_scan",
         passed=not hits,
-        output_tail="\n".join(hits) or "no secrets found in changed files",
+        output_tail="\n".join(hits) or "no secrets found in branch diff or uncommitted changes",
         duration_s=time.monotonic() - start,
     )
 
