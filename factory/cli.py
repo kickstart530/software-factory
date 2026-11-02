@@ -25,6 +25,8 @@ from factory.harness import (
 )
 from factory.harness.approvals import FileBasedApprovalService
 from factory.schemas import EXPORTED_SCHEMAS, ApprovalDecision, RiskTier, Task
+from factory.secrets import MintRequest, SecretStatus
+from factory.secrets.backends import EnvFileBackend
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -172,6 +174,104 @@ def cmd_approve_deny(args: argparse.Namespace) -> int:
     )
     service.record_decision(decision)
     print(f"✗ Denied request {args.request_id}")
+    return 0
+
+
+def cmd_secrets_mint(args: argparse.Namespace) -> int:
+    """Mint a new task-scoped credential."""
+    state_dir = Path(args.state_dir) / "secrets"
+    backend = EnvFileBackend(state_dir)
+
+    request = MintRequest(
+        task_id=args.task_id,
+        work_order_id=args.work_order_id,
+        repo_url=args.repo_url,
+        branch=args.branch,
+        tool_name=args.tool_name,
+        scopes=args.scopes or [],
+        ttl_seconds=args.ttl,
+        reason=args.reason or "Manual mint via CLI",
+    )
+
+    try:
+        credential = backend.mint(request)
+        print(f"✓ Minted credential: {credential.credential_id}")
+        print(f"  Task: {credential.task_id}")
+        print(f"  Tool: {credential.tool_name}")
+        print(f"  Expires: {credential.expires_at}")
+        print(f"  Fingerprint: {credential.fingerprint}")
+        print("\nNOTE: Secret value injected into environment, never displayed.")
+        return 0
+    except Exception as e:
+        print(f"✗ Failed to mint credential: {e}", file=sys.stderr)
+        return 1
+
+
+def cmd_secrets_list(args: argparse.Namespace) -> int:
+    """List credentials, optionally filtered by task or status."""
+    state_dir = Path(args.state_dir) / "secrets"
+    backend = EnvFileBackend(state_dir)
+
+    status_filter = SecretStatus(args.status) if args.status else None
+    credentials = backend.list_credentials(
+        task_id=args.task_id,
+        status=status_filter,
+    )
+
+    if not credentials:
+        print("No credentials found matching filters.")
+        return 0
+
+    print(f"Found {len(credentials)} credential(s):\n")
+    for cred in credentials:
+        print(f"ID:      {cred.credential_id}")
+        print(f"Task:    {cred.task_id}")
+        print(f"Tool:    {cred.tool_name}")
+        print(f"Status:  {cred.status.value}")
+        print(f"Minted:  {cred.minted_at}")
+        print(f"Expires: {cred.expires_at}")
+        if cred.revoked_at:
+            print(f"Revoked: {cred.revoked_at}")
+        print(f"Fingerprint: {cred.fingerprint}")
+        print()
+
+    return 0
+
+
+def cmd_secrets_status(args: argparse.Namespace) -> int:
+    """Show status of a specific credential."""
+    state_dir = Path(args.state_dir) / "secrets"
+    backend = EnvFileBackend(state_dir)
+
+    credential = backend.get_credential(args.credential_id)
+    if not credential:
+        print(f"Credential {args.credential_id} not found", file=sys.stderr)
+        return 1
+
+    print(json.dumps(credential.model_dump(mode="json"), indent=2))
+    return 0
+
+
+def cmd_secrets_revoke(args: argparse.Namespace) -> int:
+    """Revoke a credential before its natural expiry."""
+    state_dir = Path(args.state_dir) / "secrets"
+    backend = EnvFileBackend(state_dir)
+
+    if backend.revoke(args.credential_id):
+        print(f"✓ Revoked credential {args.credential_id}")
+        return 0
+    else:
+        print(f"✗ Could not revoke credential {args.credential_id}", file=sys.stderr)
+        return 1
+
+
+def cmd_secrets_cleanup(args: argparse.Namespace) -> int:
+    """Clean up expired credentials."""
+    state_dir = Path(args.state_dir) / "secrets"
+    backend = EnvFileBackend(state_dir)
+
+    count = backend.cleanup_expired()
+    print(f"Cleaned up {count} expired credential(s)")
     return 0
 
 
@@ -355,6 +455,46 @@ def build_parser() -> argparse.ArgumentParser:
     approve_deny.add_argument("--user", help="user name (defaults to cli-user)")
     approve_deny.add_argument("--state-dir", default=".factory-runs", help="state directory")
     approve_deny.set_defaults(func=cmd_approve_deny)
+
+    # Secrets management commands
+    secrets = sub.add_parser("secrets", help="manage task-scoped credentials")
+    secrets_sub = secrets.add_subparsers(dest="secrets_action", required=True)
+
+    secrets_mint = secrets_sub.add_parser("mint", help="mint a new credential")
+    secrets_mint.add_argument("--task-id", required=True, help="task ID")
+    secrets_mint.add_argument("--work-order-id", required=True, help="work order ID")
+    secrets_mint.add_argument("--repo-url", required=True, help="repository URL")
+    secrets_mint.add_argument("--branch", help="branch restriction")
+    secrets_mint.add_argument("--tool-name", required=True, help="tool name (e.g. gh, git)")
+    secrets_mint.add_argument("--scopes", nargs="*", help="required scopes")
+    secrets_mint.add_argument(
+        "--ttl", type=int, default=3600, help="TTL in seconds (default: 3600)"
+    )
+    secrets_mint.add_argument("--reason", help="reason for minting")
+    secrets_mint.add_argument("--state-dir", default=".factory-runs", help="state directory")
+    secrets_mint.set_defaults(func=cmd_secrets_mint)
+
+    secrets_list = secrets_sub.add_parser("list", help="list credentials")
+    secrets_list.add_argument("--task-id", help="filter by task ID")
+    secrets_list.add_argument(
+        "--status", choices=[s.value for s in SecretStatus], help="filter by status"
+    )
+    secrets_list.add_argument("--state-dir", default=".factory-runs", help="state directory")
+    secrets_list.set_defaults(func=cmd_secrets_list)
+
+    secrets_status = secrets_sub.add_parser("status", help="show credential status")
+    secrets_status.add_argument("credential_id", help="credential ID")
+    secrets_status.add_argument("--state-dir", default=".factory-runs", help="state directory")
+    secrets_status.set_defaults(func=cmd_secrets_status)
+
+    secrets_revoke = secrets_sub.add_parser("revoke", help="revoke a credential")
+    secrets_revoke.add_argument("credential_id", help="credential ID")
+    secrets_revoke.add_argument("--state-dir", default=".factory-runs", help="state directory")
+    secrets_revoke.set_defaults(func=cmd_secrets_revoke)
+
+    secrets_cleanup = secrets_sub.add_parser("cleanup", help="clean up expired credentials")
+    secrets_cleanup.add_argument("--state-dir", default=".factory-runs", help="state directory")
+    secrets_cleanup.set_defaults(func=cmd_secrets_cleanup)
 
     for name, func, help_ in (
         ("run", cmd_run, "run one task with its agent"),
