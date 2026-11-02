@@ -1,0 +1,41 @@
+---
+# RuntimeClass for gVisor sandboxes
+# gVisor provides user-space kernel isolation for enhanced security
+# 
+# SETUP REQUIRED:
+# 1. Install gVisor on each worker node:
+#    https://gvisor.dev/docs/user_guide/install/
+# 
+# 2. Install runsc containerd shim:
+#    https://gvisor.dev/docs/user_guide/containerd/quick_start/
+# 
+# 3. Verify containerd config includes runsc runtime at /etc/containerd/config.toml:
+#    [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runsc]
+#      runtime_type = "io.containerd.runsc.v1"
+# 
+# 4. Restart containerd: sudo systemctl restart containerd
+# 
+# FALLBACK for local development without gVisor:
+# - Sandboxes will use the default runc runtime (less isolation)
+# - Remove or comment out the runtimeClassName field in sandbox pod specs
+# - Security relies on namespace isolation + network policies
+# 
+# VERIFICATION:
+# After setup, verify with:
+#   kubectl run test-gvisor --rm -it --image=alpine --restart=Never \
+#     --overrides='{"spec":{"runtimeClassName":"gvisor"}}' -- dmesg
+# 
+# You should see "gVisor" in the kernel version output.
+apiVersion: node.k8s.io/v1
+kind: RuntimeClass
+metadata:
+  name: gvisor
+handler: runsc
+---
+# Alternative: kata-containers for VM-level isolation
+# Uncomment if using Kata instead of gVisor
+# apiVersion: node.k8s.io/v1
+# kind: RuntimeClass
+# metadata:
+#   name: kata
+# handler: kata

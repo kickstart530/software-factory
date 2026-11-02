@@ -1,0 +1,119 @@
+---
+# MinIO object storage for development
+# Production: use S3, GCS, or Azure Blob Storage
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: minio-config
+  namespace: factory-system
+data:
+  MINIO_ROOT_USER: "minioadmin"
+  MINIO_ROOT_PASSWORD: "minioadmin"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+  namespace: factory-system
+  labels:
+    app: minio
+spec:
+  type: ClusterIP
+  ports:
+    - port: 9000
+      targetPort: 9000
+      protocol: TCP
+      name: api
+    - port: 9001
+      targetPort: 9001
+      protocol: TCP
+      name: console
+  selector:
+    app: minio
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio-console
+  namespace: factory-system
+  labels:
+    app: minio
+spec:
+  type: NodePort
+  ports:
+    - port: 9001
+      targetPort: 9001
+      nodePort: 30900
+      protocol: TCP
+      name: console
+  selector:
+    app: minio
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minio
+  namespace: factory-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: minio
+  template:
+    metadata:
+      labels:
+        app: minio
+    spec:
+      containers:
+        - name: minio
+          image: minio/minio:latest
+          args:
+            - server
+            - /data
+            - --console-address
+            - ":9001"
+          ports:
+            - containerPort: 9000
+              name: api
+            - containerPort: 9001
+              name: console
+          envFrom:
+            - configMapRef:
+                name: minio-config
+          volumeMounts:
+            - name: storage
+              mountPath: /data
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+      volumes:
+        - name: storage
+          emptyDir: {}
+---
+# Create the factory-artifacts bucket on startup
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minio-setup
+  namespace: factory-system
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: mc
+          image: minio/mc:latest
+          command:
+            - /bin/sh
+            - -c
+            - |
+              sleep 10
+              mc alias set myminio http://minio:9000 minioadmin minioadmin
+              mc mb myminio/factory-artifacts || true
+              mc mb myminio/factory-checkpoints || true
+              mc mb myminio/factory-transcripts || true
+              echo "Buckets created"

@@ -1,0 +1,57 @@
+---
+# Hello-world sandbox job
+# Proves that sandboxes can run, emit traces, and complete successfully
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: hello-world-sandbox
+  namespace: factory-sandboxes
+  labels:
+    app: factory-sandbox
+    sandbox.factory/type: hello-world
+spec:
+  template:
+    metadata:
+      labels:
+        app: factory-sandbox
+        sandbox.factory/type: hello-world
+    spec:
+      # Use gVisor runtime for isolation (falls back to runc if not available)
+      # Comment out this line if gVisor is not installed
+      runtimeClassName: gvisor
+      
+      restartPolicy: Never
+      
+      containers:
+        - name: sandbox
+          image: factory-sandbox-hello:latest
+          imagePullPolicy: Never  # Use local image loaded into kind
+          
+          env:
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "otel-collector.factory-system:4317"
+            - name: FACTORY_ENV
+              value: "local"
+          
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "100m"
+            limits:
+              memory: "128Mi"
+              cpu: "200m"
+          
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1000
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: false  # Hello-world doesn't need writes, but set false for compatibility
+      
+      securityContext:
+        fsGroup: 1000
+  
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 600  # Clean up 10 minutes after completion
