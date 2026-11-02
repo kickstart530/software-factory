@@ -242,7 +242,7 @@ Agents can call the `escalate` tool to pause and ask a human:
 escalate(
     reason="The test suite requires a database fixture I cannot create",
     question="Should I mock the database or skip the integration tests?",
-    options=["Mock it", "Skip them", "Ask for help setting up the fixture"]
+    options=["Mock it", "Skip them", "Ask for help setting up the fixture"],
 )
 ```
 
