@@ -1,0 +1,118 @@
+---
+# OpenTelemetry Collector
+# Receives traces, metrics, and logs from sandboxes and exports to Jaeger
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-collector-config
+  namespace: factory-system
+data:
+  otel-collector-config.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+
+    processors:
+      batch:
+        timeout: 1s
+        send_batch_size: 50
+      
+      # Add factory-specific attributes
+      attributes:
+        actions:
+          - key: factory.environment
+            value: local
+            action: insert
+
+    exporters:
+      # Export to Jaeger for trace visualization
+      otlp/jaeger:
+        endpoint: jaeger:4317
+        tls:
+          insecure: true
+      
+      # Log to stdout for debugging
+      logging:
+        loglevel: info
+
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [batch, attributes]
+          exporters: [otlp/jaeger, logging]
+        
+        metrics:
+          receivers: [otlp]
+          processors: [batch]
+          exporters: [logging]
+        
+        logs:
+          receivers: [otlp]
+          processors: [batch]
+          exporters: [logging]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-collector
+  namespace: factory-system
+  labels:
+    app: otel-collector
+spec:
+  type: ClusterIP
+  ports:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: 4317
+      protocol: TCP
+    - name: otlp-http
+      port: 4318
+      targetPort: 4318
+      protocol: TCP
+  selector:
+    app: otel-collector
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-collector
+  namespace: factory-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: otel-collector
+  template:
+    metadata:
+      labels:
+        app: otel-collector
+    spec:
+      containers:
+        - name: otel-collector
+          image: otel/opentelemetry-collector:0.91.0
+          args:
+            - "--config=/conf/otel-collector-config.yaml"
+          ports:
+            - containerPort: 4317
+              name: otlp-grpc
+            - containerPort: 4318
+              name: otlp-http
+          volumeMounts:
+            - name: config
+              mountPath: /conf
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+      volumes:
+        - name: config
+          configMap:
+            name: otel-collector-config

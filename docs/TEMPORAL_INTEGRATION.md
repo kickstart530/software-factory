@@ -89,6 +89,7 @@ docker run --rm -d -p 7233:7233 -p 8233:8233 \
 ### Running a Worker
 
 ```python
+import asyncio
 from temporalio.client import Client
 from factory.temporal_supervisor import create_temporal_worker, TemporalConfig
 from factory.sandbox import run_task_in_sandbox
@@ -107,7 +108,8 @@ async def main():
     await worker.run()
 
 
-# Run with: python -m asyncio <module>
+if __name__ == "__main__":
+    asyncio.run(main())
 ```
 
 ### Executing a Workflow
@@ -164,31 +166,33 @@ Run tests:
 pytest tests/test_temporal_supervisor.py -v
 ```
 
-## What's NOT in Phase 2a First Slice
+## Phase 2a Integration Status
 
-This PR is the **first slice** of Phase 2a. It delivers:
+This PR completes Phase 2a GitHub App → Temporal integration:
 
 - ✅ Temporal workflow/activity definitions
 - ✅ Same TaskRunner contract as in-process Supervisor
-- ✅ Unit tests and structure
-- ✅ Dependencies added to `pyproject.toml`
-- ✅ **Sandbox pod spawning implementation**
+- ✅ GitHub App webhook receiver → Temporal workflow starts
+- ✅ Work Order → minimal TaskDAG conversion
+- ✅ Configuration via environment variables (no secrets in code)
+- ✅ Unit tests with mocked Temporal client
+- ✅ Integration tests structure
+- ✅ End-to-end local testing path documented
+- ✅ **Sandbox pod spawning implementation** (merged from PR #8)
 - ✅ **Credential isolation (clean HOME, no host mounts)**
 - ✅ **Egress control (NetworkPolicy + proxy config)**
 - ✅ **TaskRunner injection via registry (not heartbeats)**
 
-Still to do (remaining Phase 2a work):
+Still owned by other streams:
 
-- ❌ GitHub App integration
-- ❌ Full integration tests with Temporal test environment
-- ❌ Production Temporal cluster setup (IaC)
-- ❌ Worker deployment (Kubernetes manifests)
-- ❌ Checkpoint streaming via activity heartbeats
+- ❌ Production Temporal cluster setup (Stream C - IaC)
+- ❌ Worker deployment (Stream C - Kubernetes manifests)
+- ❌ Checkpoint streaming via activity heartbeats (Stream B)
 - ❌ Secrets Broker integration (explicit credential injection)
 
 Phase 2b will add:
 
-- MCP tool gateway
+- CLI tool gateway (not MCP per ADR-0006)
 - OPA policy engine
 - Human approval service (UI + Slack)
 
