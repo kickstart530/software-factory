@@ -1,0 +1,15 @@
+{
+  "number": 789,
+  "title": "Update README with installation instructions",
+  "description": "## Changes\n- Added installation section\n- Updated usage examples\n- Fixed broken links\n- Added troubleshooting guide",
+  "author": "docs@example.com",
+  "merged_at": "2026-10-25T16:45:00Z",
+  "base_branch": "main",
+  "labels": ["documentation"],
+  "files_changed": [
+    "README.md"
+  ],
+  "additions": 45,
+  "deletions": 12,
+  "diff": "diff --git a/README.md b/README.md\nindex abc1234..def5678 100644\n--- a/README.md\n+++ b/README.md\n@@ -10,6 +10,28 @@ A software factory system.\n \n ## Features\n \n+## Installation\n+\n+### Prerequisites\n+\n+- Python 3.12+\n+- uv package manager\n+\n+### Steps\n+\n+1. Clone the repository:\n+```bash\n+git clone https://github.com/example/software-factory.git\n+cd software-factory\n+```\n+\n+2. Install dependencies:\n+```bash\n+uv venv && uv pip install -e \".[dev]\"\n+```\n+\n+3. Run tests:\n+```bash\n+pytest\n+```\n+\n ## Usage\n"
+}

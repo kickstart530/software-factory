@@ -364,14 +364,46 @@ The factory's injection defense uses multiple layers:
 
 No single layer is perfect, but together they make successful prompt injection extremely difficult.
 
-### Continuous Golden Task Generation (Future)
+### Golden Task Generation from Merged PRs
 
-Mine production runs for interesting tasks:
+**Status**: Phase 5 implementation complete (see [GOLDEN_TASK_GENERATION.md](GOLDEN_TASK_GENERATION.md))
 
-1. Human reviews a successful Work Order
-2. System extracts task transcripts and outcomes
-3. Distills into a golden task with approval
-4. Adds to the suite for regression testing
+The factory can now generate candidate golden tasks from merged PR diffs and metadata:
+
+1. **Generate**: `factory golden generate <pr-fixture.json>` creates a candidate
+2. **Review**: `factory golden list` shows all candidates awaiting review
+3. **Decide**: `factory golden promote <id>` or `factory golden reject <id>`
+4. **Execute**: Run promoted tasks once to capture real model responses
+
+### Key Features
+
+- **CLI-first** (no MCP): All operations via `factory` CLI per ADR-0009
+- **Human/eval review gate**: Mirrors memory lessons promotion (no auto-promotion)
+- **No live GitHub in CI**: Tests use PR fixtures
+- **Agent type inference**: Automatically determines agent type from PR characteristics
+- **Complexity estimation**: Suggests budget based on PR size and files changed
+
+### Quick Example
+
+```bash
+# Generate candidate from PR fixture
+factory golden generate tests/fixtures/pr_simple_fix.json
+
+# List candidates
+factory golden list --status pending_review
+
+# Promote approved candidate
+factory golden promote candidate_123_abc12345 \
+  --reviewer alice \
+  --notes "Good validation edge case"
+
+# Reject unsuitable candidate
+factory golden reject candidate_456_def67890 \
+  --reviewer bob \
+  --reason "Too trivial"
+```
+
+See [GOLDEN_TASK_GENERATION.md](GOLDEN_TASK_GENERATION.md) for full documentation.
 
 ## Best Practices
 
