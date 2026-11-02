@@ -53,24 +53,21 @@ avoid repeating mistakes and leverage accumulated knowledge.
 
 ```python
 {
-  "id": "lesson-20260102123045-a1b2c3d4",
-  "text": "In repo X, run `make gen` before tests to regenerate code",
-  "repo": "https://github.com/example/repo-x",
-  "tags": ["testing", "codegen", "prerequisites"],
-  
-  # Provenance
-  "run_id": "bc_abc123",
-  "work_order_id": "wo-2024-001",
-  
-  # Lifecycle
-  "status": "promoted",  # candidate | promoted | rejected | expired
-  "created_at": "2026-01-02T12:30:45Z",
-  "ttl_days": 90,
-  
-  # Review metadata
-  "reviewed_by": "alice@example.com",
-  "reviewed_at": "2026-01-05T09:00:00Z",
-  "review_reason": "verified by successful eval runs"
+    "id": "lesson-20260102123045-a1b2c3d4",
+    "text": "In repo X, run `make gen` before tests to regenerate code",
+    "repo": "https://github.com/example/repo-x",
+    "tags": ["testing", "codegen", "prerequisites"],
+    # Provenance
+    "run_id": "bc_abc123",
+    "work_order_id": "wo-2024-001",
+    # Lifecycle
+    "status": "promoted",  # candidate | promoted | rejected | expired
+    "created_at": "2026-01-02T12:30:45Z",
+    "ttl_days": 90,
+    # Review metadata
+    "reviewed_by": "alice@example.com",
+    "reviewed_at": "2026-01-05T09:00:00Z",
+    "review_reason": "verified by successful eval runs",
 }
 ```
 

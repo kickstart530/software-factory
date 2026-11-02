@@ -209,9 +209,7 @@ def test_store_query_by_tags(store: FileBackedLessonStore):
     lesson2 = Lesson(
         id="lesson-002", text="test2", tags=["testing", "security"], status=LessonStatus.PROMOTED
     )
-    lesson3 = Lesson(
-        id="lesson-003", text="test3", tags=["testing"], status=LessonStatus.PROMOTED
-    )
+    lesson3 = Lesson(id="lesson-003", text="test3", tags=["testing"], status=LessonStatus.PROMOTED)
     store.save(lesson1)
     store.save(lesson2)
     store.save(lesson3)
@@ -286,7 +284,7 @@ def test_service_propose_lesson(service: LessonService):
 
 def test_service_propose_requires_provenance_for_automatic_proposal():
     """Test that lessons proposed without run_id are still valid.
-    
+
     Note: Provenance is encouraged but not strictly required to allow
     manual lesson proposals.
     """
@@ -398,9 +396,7 @@ def test_service_query_returns_promoted_by_default(service: LessonService):
     proposal1 = LessonProposal(text="promoted lesson")
     lesson1 = service.propose_lesson(proposal1)
     service.promote(
-        PromotionDecision(
-            lesson_id=lesson1.id, approved=True, reason="good", decided_by="alice"
-        )
+        PromotionDecision(lesson_id=lesson1.id, approved=True, reason="good", decided_by="alice")
     )
 
     # Propose another but don't promote
