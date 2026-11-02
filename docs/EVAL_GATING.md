@@ -175,6 +175,17 @@ jobs:
           path: gate-report.json
 ```
 
+### Advanced Example with PR Comments
+
+See `.github/workflows/eval-gate-example.yml` for a complete workflow that:
+- Fetches baseline config from the main branch
+- Compares baseline vs candidate
+- Posts gate results as a PR comment
+- Blocks merge on regressions
+- Uploads detailed JSON report
+
+This workflow only runs when agents, models, or prompts change.
+
 ### Local Development Workflow
 
 Before submitting a PR with prompt or model changes:
