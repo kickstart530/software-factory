@@ -237,13 +237,15 @@ class TestCLIIntegration:
         candidates_dir = tmp_path / "candidates"
         pr_fixture = fixtures_dir / "pr_simple_fix.json"
 
-        result = main([
-            "golden",
-            "generate",
-            str(pr_fixture),
-            "--candidates-dir",
-            str(candidates_dir),
-        ])
+        result = main(
+            [
+                "golden",
+                "generate",
+                str(pr_fixture),
+                "--candidates-dir",
+                str(candidates_dir),
+            ]
+        )
 
         assert result == 0
         assert len(list(candidates_dir.glob("*.json"))) == 1
@@ -255,21 +257,25 @@ class TestCLIIntegration:
         candidates_dir = tmp_path / "candidates"
 
         # Generate a candidate first
-        main([
-            "golden",
-            "generate",
-            str(fixtures_dir / "pr_simple_fix.json"),
-            "--candidates-dir",
-            str(candidates_dir),
-        ])
+        main(
+            [
+                "golden",
+                "generate",
+                str(fixtures_dir / "pr_simple_fix.json"),
+                "--candidates-dir",
+                str(candidates_dir),
+            ]
+        )
 
         # List candidates
-        result = main([
-            "golden",
-            "list",
-            "--candidates-dir",
-            str(candidates_dir),
-        ])
+        result = main(
+            [
+                "golden",
+                "list",
+                "--candidates-dir",
+                str(candidates_dir),
+            ]
+        )
 
         assert result == 0
 
@@ -281,13 +287,15 @@ class TestCLIIntegration:
         golden_dir = tmp_path / "golden"
 
         # Generate candidate
-        main([
-            "golden",
-            "generate",
-            str(fixtures_dir / "pr_simple_fix.json"),
-            "--candidates-dir",
-            str(candidates_dir),
-        ])
+        main(
+            [
+                "golden",
+                "generate",
+                str(fixtures_dir / "pr_simple_fix.json"),
+                "--candidates-dir",
+                str(candidates_dir),
+            ]
+        )
 
         # Get candidate ID
         candidate_file = list(candidates_dir.glob("*.json"))[0]
@@ -295,17 +303,19 @@ class TestCLIIntegration:
         candidate_id = data["id"]
 
         # Promote
-        result = main([
-            "golden",
-            "promote",
-            candidate_id,
-            "--reviewer",
-            "test-reviewer",
-            "--candidates-dir",
-            str(candidates_dir),
-            "--golden-dir",
-            str(golden_dir),
-        ])
+        result = main(
+            [
+                "golden",
+                "promote",
+                candidate_id,
+                "--reviewer",
+                "test-reviewer",
+                "--candidates-dir",
+                str(candidates_dir),
+                "--golden-dir",
+                str(golden_dir),
+            ]
+        )
 
         assert result == 0
         assert len(list(golden_dir.glob("*.json"))) == 1
@@ -317,13 +327,15 @@ class TestCLIIntegration:
         candidates_dir = tmp_path / "candidates"
 
         # Generate candidate
-        main([
-            "golden",
-            "generate",
-            str(fixtures_dir / "pr_simple_fix.json"),
-            "--candidates-dir",
-            str(candidates_dir),
-        ])
+        main(
+            [
+                "golden",
+                "generate",
+                str(fixtures_dir / "pr_simple_fix.json"),
+                "--candidates-dir",
+                str(candidates_dir),
+            ]
+        )
 
         # Get candidate ID
         candidate_file = list(candidates_dir.glob("*.json"))[0]
@@ -331,17 +343,19 @@ class TestCLIIntegration:
         candidate_id = data["id"]
 
         # Reject
-        result = main([
-            "golden",
-            "reject",
-            candidate_id,
-            "--reviewer",
-            "test-reviewer",
-            "--reason",
-            "Not suitable",
-            "--candidates-dir",
-            str(candidates_dir),
-        ])
+        result = main(
+            [
+                "golden",
+                "reject",
+                candidate_id,
+                "--reviewer",
+                "test-reviewer",
+                "--reason",
+                "Not suitable",
+                "--candidates-dir",
+                str(candidates_dir),
+            ]
+        )
 
         assert result == 0
 

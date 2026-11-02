@@ -1379,17 +1379,13 @@ def build_parser() -> argparse.ArgumentParser:
     golden_gen = golden_sub.add_parser(
         "generate", help="generate candidate golden task from PR fixture"
     )
-    golden_gen.add_argument(
-        "pr_fixture", help="path to PR fixture JSON file"
-    )
+    golden_gen.add_argument("pr_fixture", help="path to PR fixture JSON file")
     golden_gen.add_argument(
         "--candidates-dir",
         default=str(REPO_ROOT / "evals" / "candidates"),
         help="directory for candidate golden tasks",
     )
-    golden_gen.add_argument(
-        "--agent", help="override inferred agent type"
-    )
+    golden_gen.add_argument("--agent", help="override inferred agent type")
     golden_gen.set_defaults(func=cmd_golden_generate)
 
     golden_list = golden_sub.add_parser("list", help="list candidate golden tasks")
@@ -1406,9 +1402,7 @@ def build_parser() -> argparse.ArgumentParser:
     golden_list.add_argument("--json", help="write listing to JSON file")
     golden_list.set_defaults(func=cmd_golden_list)
 
-    golden_promote = golden_sub.add_parser(
-        "promote", help="promote candidate to active golden set"
-    )
+    golden_promote = golden_sub.add_parser("promote", help="promote candidate to active golden set")
     golden_promote.add_argument("candidate_id", help="candidate ID to promote")
     golden_promote.add_argument(
         "--reviewer", required=True, help="name of reviewer approving promotion"
@@ -1426,16 +1420,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     golden_promote.set_defaults(func=cmd_golden_promote)
 
-    golden_reject = golden_sub.add_parser(
-        "reject", help="reject a candidate golden task"
-    )
+    golden_reject = golden_sub.add_parser("reject", help="reject a candidate golden task")
     golden_reject.add_argument("candidate_id", help="candidate ID to reject")
-    golden_reject.add_argument(
-        "--reviewer", required=True, help="name of reviewer"
-    )
-    golden_reject.add_argument(
-        "--reason", required=True, help="reason for rejection"
-    )
+    golden_reject.add_argument("--reviewer", required=True, help="name of reviewer")
+    golden_reject.add_argument("--reason", required=True, help="reason for rejection")
     golden_reject.add_argument(
         "--candidates-dir",
         default=str(REPO_ROOT / "evals" / "candidates"),

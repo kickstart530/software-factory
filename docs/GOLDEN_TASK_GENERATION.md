@@ -274,11 +274,11 @@ A GitHub App webhook could auto-capture merged PR metadata:
 
 ```python
 # Future: GitHub App webhook handler
-@app.route('/webhook/pr_merged', methods=['POST'])
+@app.route("/webhook/pr_merged", methods=["POST"])
 def on_pr_merged():
     pr = github.get_pr(pr_number)
     fixture = create_pr_fixture(pr)
-    save_fixture(fixture, 'fixtures/auto_captured/')
+    save_fixture(fixture, "fixtures/auto_captured/")
     # Still requires manual review and promotion
 ```
 

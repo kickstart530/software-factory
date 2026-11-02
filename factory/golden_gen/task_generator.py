@@ -42,25 +42,25 @@ def generate_candidate_task(
     custom_agent: str | None = None,
 ) -> CandidateGoldenTask:
     """Generate a candidate golden task from PR metadata.
-    
+
     Args:
         pr_metadata: Parsed PR metadata including diff
         agent_catalog_path: Path to agents directory (for loading agent specs)
         custom_agent: Override inferred agent type
-        
+
     Returns:
         Candidate golden task ready for review
     """
     # Infer or use custom agent type
     agent_type = custom_agent or infer_agent_type(pr_metadata)
-    
+
     # Extract task details
     instructions = extract_instructions(pr_metadata)
     complexity = estimate_complexity(pr_metadata)
-    
+
     # Generate unique task ID
     task_id = f"candidate_{pr_metadata.number}_{uuid.uuid4().hex[:8]}"
-    
+
     # Create task structure
     task = {
         "id": task_id,
@@ -69,7 +69,7 @@ def generate_candidate_task(
         "title": pr_metadata.title,
         "instructions": instructions,
     }
-    
+
     # Create agent spec (minimal version - will be enriched from catalog if available)
     agent_spec = {
         "name": agent_type,
@@ -83,11 +83,12 @@ def generate_candidate_task(
         "max_gate_attempts": 3,
         "output_schema": _get_output_schema(agent_type),
     }
-    
+
     # If agent catalog exists, try to load actual agent spec
     if agent_catalog_path and agent_catalog_path.exists():
         try:
             from factory.agents.spec import AgentCatalog
+
             catalog = AgentCatalog(agent_catalog_path)
             if agent_type in catalog._specs:
                 real_spec = catalog[agent_type]
@@ -106,7 +107,7 @@ def generate_candidate_task(
         except Exception:
             # Fall back to defaults if catalog loading fails
             pass
-    
+
     # Build metadata
     metadata = {
         "source_pr": {
@@ -126,7 +127,7 @@ def generate_candidate_task(
         },
         "generation_timestamp": datetime.now(UTC).isoformat(),
     }
-    
+
     return CandidateGoldenTask(
         id=task_id,
         pr_number=pr_metadata.number,
@@ -143,7 +144,7 @@ def generate_candidate_task(
 def _get_default_tools(agent_type: str) -> list[str]:
     """Get default tools for an agent type."""
     base_tools = ["read_file", "submit_result"]
-    
+
     if agent_type in ("implementer", "test_engineer"):
         return base_tools + ["write_file", "edit_file", "run_command"]
     elif agent_type == "reviewer":
@@ -167,21 +168,21 @@ def _get_output_schema(agent_type: str) -> str:
 
 def save_candidate(candidate: CandidateGoldenTask, candidates_dir: Path) -> Path:
     """Save candidate golden task to the candidates directory.
-    
+
     Args:
         candidate: Candidate golden task to save
         candidates_dir: Directory for candidate tasks
-        
+
     Returns:
         Path to saved candidate file
     """
     candidates_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # Create filename from PR number and timestamp
     timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     filename = f"pr_{candidate.pr_number}_{timestamp}.json"
     filepath = candidates_dir / filename
-    
+
     # Convert to JSON-serializable dict
     data = {
         "id": candidate.id,
@@ -198,17 +199,17 @@ def save_candidate(candidate: CandidateGoldenTask, candidates_dir: Path) -> Path
         "reviewer": candidate.reviewer,
         "reviewed_at": candidate.reviewed_at,
     }
-    
+
     filepath.write_text(json.dumps(data, indent=2) + "\n")
     return filepath
 
 
 def load_candidate(filepath: Path) -> CandidateGoldenTask:
     """Load a candidate golden task from file.
-    
+
     Args:
         filepath: Path to candidate JSON file
-        
+
     Returns:
         Loaded candidate golden task
     """
@@ -224,17 +225,17 @@ def promote_candidate(
     review_notes: str | None = None,
 ) -> Path:
     """Promote an approved candidate to the active golden set.
-    
+
     Args:
         candidate: Candidate to promote
         golden_dir: Directory for active golden tasks
         candidates_dir: Directory where candidates are stored
         reviewer: Name of person approving the promotion
         review_notes: Optional notes about the review
-        
+
     Returns:
         Path to promoted golden task file
-        
+
     Raises:
         ValueError: If candidate is not approved
     """
@@ -243,37 +244,43 @@ def promote_candidate(
             f"Cannot promote candidate with status '{candidate.status}'. "
             "Only pending_review or approved candidates can be promoted."
         )
-    
+
     # Mark as approved
     candidate.status = "approved"
     candidate.reviewer = reviewer
     candidate.reviewed_at = datetime.now(UTC).isoformat()
     if review_notes:
         candidate.review_notes = review_notes
-    
+
     # Update candidate file
     for f in candidates_dir.glob("*.json"):
         try:
             data = json.loads(f.read_text())
             if data.get("id") == candidate.id:
-                f.write_text(json.dumps({
-                    **data,
-                    "status": candidate.status,
-                    "reviewer": candidate.reviewer,
-                    "reviewed_at": candidate.reviewed_at,
-                    "review_notes": candidate.review_notes,
-                }, indent=2) + "\n")
+                f.write_text(
+                    json.dumps(
+                        {
+                            **data,
+                            "status": candidate.status,
+                            "reviewer": candidate.reviewer,
+                            "reviewed_at": candidate.reviewed_at,
+                            "review_notes": candidate.review_notes,
+                        },
+                        indent=2,
+                    )
+                    + "\n"
+                )
                 break
         except Exception:
             continue
-    
+
     # Create golden task (simplified format - no model_responses as those are for replay)
     golden_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # Generate a clean filename
     filename = f"pr_{candidate.pr_number}_{candidate.task['agent']}.json"
     filepath = golden_dir / filename
-    
+
     # Convert to golden task format
     golden_task = {
         "description": candidate.description,
@@ -288,8 +295,8 @@ def promote_candidate(
                     {
                         "type": "text",
                         "text": f"Task from PR #{candidate.pr_number}. "
-                               "This is a template golden task. "
-                               "Execute it once to capture real model responses."
+                        "This is a template golden task. "
+                        "Execute it once to capture real model responses.",
                     }
                 ],
                 "stop_reason": "end_turn",
@@ -300,7 +307,7 @@ def promote_candidate(
         ],
         "metadata": candidate.metadata,
     }
-    
+
     filepath.write_text(json.dumps(golden_task, indent=2) + "\n")
     return filepath
 
@@ -312,7 +319,7 @@ def reject_candidate(
     reason: str,
 ) -> None:
     """Reject a candidate (mark as rejected, don't promote).
-    
+
     Args:
         candidate: Candidate to reject
         candidates_dir: Directory where candidates are stored
@@ -323,19 +330,25 @@ def reject_candidate(
     candidate.reviewer = reviewer
     candidate.reviewed_at = datetime.now(UTC).isoformat()
     candidate.review_notes = reason
-    
+
     # Update candidate file
     for f in candidates_dir.glob("*.json"):
         try:
             data = json.loads(f.read_text())
             if data.get("id") == candidate.id:
-                f.write_text(json.dumps({
-                    **data,
-                    "status": candidate.status,
-                    "reviewer": candidate.reviewer,
-                    "reviewed_at": candidate.reviewed_at,
-                    "review_notes": candidate.review_notes,
-                }, indent=2) + "\n")
+                f.write_text(
+                    json.dumps(
+                        {
+                            **data,
+                            "status": candidate.status,
+                            "reviewer": candidate.reviewer,
+                            "reviewed_at": candidate.reviewed_at,
+                            "review_notes": candidate.review_notes,
+                        },
+                        indent=2,
+                    )
+                    + "\n"
+                )
                 break
         except Exception:
             continue
