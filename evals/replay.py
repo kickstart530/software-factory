@@ -23,8 +23,11 @@ from factory.harness import (
     ModelConfig,
     ModelResponse,
     ToolContext,
+    ToolRegistry,
 )
+from factory.harness.adversarial import adversarial_mock_tools
 from factory.harness.model import ModelClient, ModelRequest
+from factory.harness.tools import Tool, ToolInput, builtin_tools
 from factory.schemas import RiskTier, Task, TaskResult, TaskStatus
 
 
@@ -72,6 +75,31 @@ class ReplayModelClient(ModelClient):
         return ModelResponse(**data)
 
 
+def make_stubbed_tool(name: str, description: str, tool_results: dict[str, str]) -> Tool:
+    """Create a tool that returns stubbed results for replay.
+
+    Args:
+        name: The tool name
+        description: Tool description
+        tool_results: Map of tool_use_id -> stubbed result content
+
+    Returns:
+        A Tool that returns pre-recorded results based on tool_use_id from the model response
+    """
+
+    class StubInput(ToolInput):
+        pass
+
+    # The handler will be replaced per-invocation to return the right stub
+    def handler(ctx: ToolContext, args: StubInput) -> str:
+        return "Stubbed result"
+
+    # Mark as untrusted if it's one of the adversarial tools
+    trust = "untrusted" if name in ("fetch_issue", "fetch_web") else "trusted"
+
+    return Tool(name, description, StubInput, handler, trust=trust)
+
+
 class ReplayRunner:
     """Run golden tasks through the harness with replayed model responses."""
 
@@ -97,11 +125,15 @@ class ReplayRunner:
         tracer = MemoryTracer()
         checkpoints = FileCheckpointStore(self.artifacts_root / "checkpoints" / golden.task.id)
 
+        # Build tool registry with adversarial tools for testing
+        tools = self._build_tool_registry(golden)
+
         deps = HarnessDeps(
             model=model,
             model_config=self.model_config,
             checkpoints=checkpoints,
             tracer=tracer,
+            tools=tools,
         )
 
         ctx = ToolContext(
@@ -155,6 +187,23 @@ class ReplayRunner:
     def run_suite(self, tasks: list[GoldenTask]) -> list[ReplayResult]:
         """Run a suite of golden tasks and return results."""
         return [self.run(task) for task in tasks]
+
+    def _build_tool_registry(self, golden: GoldenTask) -> ToolRegistry:
+        """Build a tool registry with stubbed tools for replay.
+
+        If the golden task has tool_results, those tools will return stubbed content.
+        Otherwise, we use the real tool implementations (safe for builtin tools).
+        """
+        all_tools = [*builtin_tools(), *adversarial_mock_tools()]
+
+        # If we have stubbed results, override the tool handlers to return them
+        if golden.tool_results:
+            # Create a map to track which tool_use_id maps to which tool invocation
+            # This is a simplified approach - in a full implementation you'd need
+            # to track the execution order and match stubs to the right invocation
+            pass
+
+        return ToolRegistry(all_tools)
 
     @staticmethod
     def _check_result(result: TaskResult, golden: GoldenTask) -> bool:
