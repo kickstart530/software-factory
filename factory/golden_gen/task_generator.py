@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import json
 import uuid
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -124,7 +124,7 @@ def generate_candidate_task(
             "deletions": pr_metadata.deletions,
             "total": pr_metadata.additions + pr_metadata.deletions,
         },
-        "generation_timestamp": datetime.now(timezone.utc).isoformat(),
+        "generation_timestamp": datetime.now(UTC).isoformat(),
     }
     
     return CandidateGoldenTask(
@@ -136,7 +136,7 @@ def generate_candidate_task(
         expected_status="succeeded",  # PRs that merged are assumed successful
         expected_gates=[],  # TODO: Could be inferred from CI results
         metadata=metadata,
-        created_at=datetime.now(timezone.utc).isoformat(),
+        created_at=datetime.now(UTC).isoformat(),
     )
 
 
@@ -178,7 +178,7 @@ def save_candidate(candidate: CandidateGoldenTask, candidates_dir: Path) -> Path
     candidates_dir.mkdir(parents=True, exist_ok=True)
     
     # Create filename from PR number and timestamp
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     filename = f"pr_{candidate.pr_number}_{timestamp}.json"
     filepath = candidates_dir / filename
     
@@ -247,17 +247,15 @@ def promote_candidate(
     # Mark as approved
     candidate.status = "approved"
     candidate.reviewer = reviewer
-    candidate.reviewed_at = datetime.now(timezone.utc).isoformat()
+    candidate.reviewed_at = datetime.now(UTC).isoformat()
     if review_notes:
         candidate.review_notes = review_notes
     
     # Update candidate file
-    candidate_file = None
     for f in candidates_dir.glob("*.json"):
         try:
             data = json.loads(f.read_text())
             if data.get("id") == candidate.id:
-                candidate_file = f
                 f.write_text(json.dumps({
                     **data,
                     "status": candidate.status,
@@ -323,7 +321,7 @@ def reject_candidate(
     """
     candidate.status = "rejected"
     candidate.reviewer = reviewer
-    candidate.reviewed_at = datetime.now(timezone.utc).isoformat()
+    candidate.reviewed_at = datetime.now(UTC).isoformat()
     candidate.review_notes = reason
     
     # Update candidate file
