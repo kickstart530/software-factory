@@ -1,0 +1,101 @@
+{
+  "$defs": {
+    "SecurityFinding": {
+      "additionalProperties": false,
+      "properties": {
+        "category": {
+          "description": "Type of security issue, e.g. 'secrets', 'authz', 'injection', 'crypto'",
+          "title": "Category",
+          "type": "string"
+        },
+        "severity": {
+          "$ref": "#/$defs/SecuritySeverity"
+        },
+        "file": {
+          "title": "File",
+          "type": "string"
+        },
+        "line": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Line"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "scenario": {
+          "description": "Concrete exploit scenario: who can exploit it, how, and what the impact is",
+          "title": "Scenario",
+          "type": "string"
+        },
+        "recommendation": {
+          "default": "",
+          "title": "Recommendation",
+          "type": "string"
+        }
+      },
+      "required": [
+        "category",
+        "severity",
+        "file",
+        "summary",
+        "scenario"
+      ],
+      "title": "SecurityFinding",
+      "type": "object"
+    },
+    "SecuritySeverity": {
+      "enum": [
+        "critical",
+        "high",
+        "medium",
+        "low",
+        "info"
+      ],
+      "title": "SecuritySeverity",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "verdict": {
+      "enum": [
+        "approve",
+        "request_changes"
+      ],
+      "title": "Verdict",
+      "type": "string"
+    },
+    "summary": {
+      "title": "Summary",
+      "type": "string"
+    },
+    "findings": {
+      "items": {
+        "$ref": "#/$defs/SecurityFinding"
+      },
+      "title": "Findings",
+      "type": "array"
+    },
+    "sast_triage": {
+      "default": "",
+      "description": "Summary of SAST/SCA findings triage if any ran",
+      "title": "Sast Triage",
+      "type": "string"
+    }
+  },
+  "required": [
+    "verdict",
+    "summary"
+  ],
+  "title": "SecurityReport",
+  "type": "object"
+}

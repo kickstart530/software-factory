@@ -1,0 +1,99 @@
+{
+  "$defs": {
+    "CoverageReport": {
+      "additionalProperties": false,
+      "description": "Coverage metrics for a test run.",
+      "properties": {
+        "total_statements": {
+          "minimum": 0,
+          "title": "Total Statements",
+          "type": "integer"
+        },
+        "covered_statements": {
+          "minimum": 0,
+          "title": "Covered Statements",
+          "type": "integer"
+        },
+        "coverage_percent": {
+          "maximum": 100,
+          "minimum": 0,
+          "title": "Coverage Percent",
+          "type": "number"
+        },
+        "missing_lines": {
+          "description": "File:line references for uncovered lines",
+          "items": {
+            "type": "string"
+          },
+          "title": "Missing Lines",
+          "type": "array"
+        }
+      },
+      "required": [
+        "total_statements",
+        "covered_statements",
+        "coverage_percent"
+      ],
+      "title": "CoverageReport",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "summary": {
+      "title": "Summary",
+      "type": "string"
+    },
+    "tests_added": {
+      "description": "Test functions or files added/modified",
+      "items": {
+        "type": "string"
+      },
+      "title": "Tests Added",
+      "type": "array"
+    },
+    "coverage_before": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CoverageReport"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "coverage_after": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CoverageReport"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "gaps": {
+      "description": "Remaining coverage gaps or edge cases not fully tested",
+      "items": {
+        "type": "string"
+      },
+      "title": "Gaps",
+      "type": "array"
+    },
+    "recommendations": {
+      "description": "Suggestions for further test improvements",
+      "items": {
+        "type": "string"
+      },
+      "title": "Recommendations",
+      "type": "array"
+    }
+  },
+  "required": [
+    "summary"
+  ],
+  "title": "TestReport",
+  "type": "object"
+}

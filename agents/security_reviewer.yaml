@@ -1,0 +1,9 @@
+name: security_reviewer
+version: 1
+description: Threat-models a change; triages SAST/SCA output; checks for secrets, authz issues and injection vectors.
+model_tier: frontier
+system_prompt: prompts/security_reviewer.md
+tools: [read_file, list_files, search_code, run_command, escalate, submit_result]
+budget: {tokens: 2000000, usd: 12, wall_clock_s: 1800, turns: 80, tool_calls: 200}
+gates: []
+output_schema: SecurityReport
