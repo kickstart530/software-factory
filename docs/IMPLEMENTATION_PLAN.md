@@ -20,6 +20,8 @@ harness is built first and every agent is built on it.
 | 1. Harness MVP | **Complete** | `factory/harness/`: agent loop, tool registry and sandbox tools, policy, hooks, gates, budgets, checkpoints/resume, escalation, telemetry (JSONL + OpenTelemetry exporter), model client. `evals/`: golden task set (5 tasks), replay runner, CLI integration. 50+ tests on a scripted model. |
 | 2a. Temporal Supervisor + GitHub App pilot | **Complete** | In-process Supervisor (`factory/orchestrator.py`) for local testing. Temporal workflow/activities in `factory/temporal_supervisor.py`. Temporal cluster infrastructure in `infra/temporal/`. Sandbox pod spawner with credential isolation in `factory/sandbox/`. GitHub App webhook receiver (`github_app/`) integrated with Temporal workflow starts. Agent definitions for planner, implementer, reviewer and integrator in `agents/`. End-to-end integration operational; production pipeline ready for pilot repository deployment. |
 | 2b. Policy & Approvals | **Complete** | OPA-compatible policy engine (`factory/harness/policy_engine.py`), human approval service (`factory/harness/approvals.py`) with CLI interface (`factory approve` subcommands). Risk-tier computation for path-based and change-based scoring. CLI-first per ADR-0009 (MCP deferred). Integration guide at [`docs/phase2b-integration-guide.md`](phase2b-integration-guide.md). Slack UI for approvals deferred to Phase 4. |
+| 3. Hardening | **Complete** | Security Reviewer + Test Engineer agents, injection + adversarial evals suite, Secrets Broker integration, multi-tenancy support + budget ledger, cost dashboards, kill switch implementation, spot instance + pre-emption handling. PRs #15–#20 merged to main. |
+| 4. Full lifecycle | **In progress** | Spec, Architect, Release, SRE and Docs agent scaffolds; memory "lessons" promotion workflow design. Canary deployment + auto-rollback mechanisms under development. |
 
 ---
 
@@ -357,16 +359,14 @@ TypeScript only for the approval UI.
 
 See [`docs/GETTING_STARTED.md`](GETTING_STARTED.md) for setup and deployment guides.
 
-**Phase 3: Hardening (In Progress)**
+**Phase 3: Hardening (Complete)**
+
+Security Reviewer + Test Engineer agents deployed. Injection and adversarial evals suite operational. Secrets Broker integrated, multi-tenancy support + budget ledger live, cost dashboards available, kill switch verified, spot instance + pre-emption handling tested. PRs #15–#20 merged to main.
+
+**Phase 4: Full lifecycle (In Progress)**
 
 Current focus areas:
 
-1. **Additional agents**: Security Reviewer, Test Engineer agents to strengthen review and testing coverage
-2. **Injection defences**: Adversarial evals for prompt-injection payloads in issues, comments, dependencies; taint-aware policy refinement
-3. **Secrets management**: Integrate Secrets Broker (Vault) for per-task credential minting; eliminate standing credentials
-4. **Multi-tenancy**: Namespace isolation, per-tenant budgets and policy enforcement
-5. **Cost dashboards**: Operational metrics and cost tracking per Work Order, task, and agent
-6. **Kill switch**: Global and per-tenant pause capability; in-flight task checkpoint and graceful shutdown
-7. **Spot/pre-emption tolerance**: Validate checkpoint/resume under node eviction
-
-**Phase 4 and beyond**: Spec agent, Architect agent, Release agent, SRE/Ops Triage agent, Docs agent; Memory service with code index and factory lessons; canary deployments with auto-rollback; Slack/web UI for approvals; continuous improvement via eval-gated updates.
+1. **Agent scaffold completion**: Spec, Architect, Release, SRE and Docs agents under development; initial implementations being tested against pilot work orders.
+2. **Memory lessons workflow**: promotion pipeline design complete; building review + eval gates to prevent bad lessons from reinforcing mistakes.
+3. **Canary + auto-rollback**: staged rollout orchestration and health-based rollback mechanisms in development; SRE agent integration pending.
