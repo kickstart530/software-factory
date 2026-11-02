@@ -74,7 +74,18 @@ class FileCheckpointStore:
 
         # Fallback to old path for backward compat
         latest = self.root / task_id / "LATEST"
-        if not latest.is_file():
-            return None
-        path = self.root / task_id / f"{latest.read_text().strip()}.json"
-        return RunState.model_validate(json.loads(path.read_text()))
+        if latest.is_file():
+            path = self.root / task_id / f"{latest.read_text().strip()}.json"
+            return RunState.model_validate(json.loads(path.read_text()))
+
+        # Final fallback: search all work_order subdirs for this task_id
+        # This handles tests that load("T1") when checkpoint was saved with work_order_id
+        if not work_order_id and self.root.exists():
+            for wo_dir in self.root.iterdir():
+                if wo_dir.is_dir():
+                    latest = wo_dir / task_id / "LATEST"
+                    if latest.is_file():
+                        path = wo_dir / task_id / f"{latest.read_text().strip()}.json"
+                        return RunState.model_validate(json.loads(path.read_text()))
+
+        return None
