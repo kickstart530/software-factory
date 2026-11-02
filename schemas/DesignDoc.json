@@ -1,0 +1,68 @@
+{
+  "additionalProperties": false,
+  "description": "Output from the Architect agent: design for a non-trivial change.",
+  "properties": {
+    "summary": {
+      "minLength": 1,
+      "title": "Summary",
+      "type": "string"
+    },
+    "scope": {
+      "description": "What changes and what stays the same.",
+      "minLength": 1,
+      "title": "Scope",
+      "type": "string"
+    },
+    "interfaces": {
+      "description": "New or changed contracts, APIs, schemas.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Interfaces",
+      "type": "array"
+    },
+    "data_flows": {
+      "description": "Key data flows or state transitions.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Data Flows",
+      "type": "array"
+    },
+    "trade_offs": {
+      "description": "Alternatives considered and why they were rejected.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Trade Offs",
+      "type": "array"
+    },
+    "adr_path": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Path to ADR file if one was drafted.",
+      "title": "Adr Path"
+    },
+    "risks": {
+      "description": "Known risks or open questions.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Risks",
+      "type": "array"
+    }
+  },
+  "required": [
+    "summary",
+    "scope"
+  ],
+  "title": "DesignDoc",
+  "type": "object"
+}

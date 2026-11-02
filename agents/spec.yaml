@@ -1,0 +1,9 @@
+name: spec
+version: 1
+description: Turns a raw request into a Work Order with clear acceptance criteria.
+model_tier: mid
+system_prompt: prompts/spec.md
+tools: [read_file, list_files, search_code, escalate, submit_result]
+budget: {tokens: 1000000, usd: 6, wall_clock_s: 1200, turns: 50}
+gates: []
+output_schema: SpecResult

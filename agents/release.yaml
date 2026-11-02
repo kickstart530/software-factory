@@ -1,0 +1,9 @@
+name: release
+version: 1
+description: Generates changelog, updates version, and prepares staged rollout plan.
+model_tier: mid
+system_prompt: prompts/release.md
+tools: [read_file, list_files, search_code, run_command, submit_result]
+budget: {tokens: 1500000, usd: 8, wall_clock_s: 1500, turns: 60}
+gates: []
+output_schema: ReleaseResult

@@ -7,14 +7,20 @@ from tests.conftest import REPO_ROOT, make_spec
 
 def test_repo_agent_definitions_load():
     catalog = AgentCatalog(REPO_ROOT / "agents")
-    assert {
+    expected = {
         "planner",
         "implementer",
         "reviewer",
         "integrator",
         "security_reviewer",
         "test_engineer",
-    } <= set(catalog.names())
+        "spec",
+        "architect",
+        "release",
+        "sre",
+        "docs",
+    }
+    assert expected <= set(catalog.names())
     for spec in catalog:
         assert catalog.system_prompt(spec).strip()
 

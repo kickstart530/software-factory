@@ -336,6 +336,99 @@ class TestReport(Contract):
     )
 
 
+class SpecResult(Contract):
+    """Output from the Spec agent: a refined Work Order."""
+
+    work_order: WorkOrder
+    rationale: str = Field(min_length=1, description="Why this Work Order captures the request.")
+    clarifications: list[str] = Field(
+        default_factory=list, description="Questions answered or assumptions made."
+    )
+
+
+class DesignDoc(Contract):
+    """Output from the Architect agent: design for a non-trivial change."""
+
+    summary: str = Field(min_length=1)
+    scope: str = Field(min_length=1, description="What changes and what stays the same.")
+    interfaces: list[str] = Field(
+        default_factory=list, description="New or changed contracts, APIs, schemas."
+    )
+    data_flows: list[str] = Field(
+        default_factory=list, description="Key data flows or state transitions."
+    )
+    trade_offs: list[str] = Field(
+        default_factory=list, description="Alternatives considered and why they were rejected."
+    )
+    adr_path: str | None = Field(default=None, description="Path to ADR file if one was drafted.")
+    risks: list[str] = Field(default_factory=list, description="Known risks or open questions.")
+
+
+class RolloutStage(Contract):
+    """One stage of a release rollout."""
+
+    name: str = Field(min_length=1)
+    target: str = Field(min_length=1, description="e.g. 'canary', '50%', '100%', 'region-eu'")
+    wait_duration: str | None = Field(
+        default=None, description="e.g. '15m', '1h'; how long to monitor before next stage."
+    )
+    success_criteria: list[str] = Field(
+        default_factory=list, description="Metrics or checks that must pass."
+    )
+
+
+class ReleaseResult(Contract):
+    """Output from the Release agent: version, changelog, and rollout plan."""
+
+    version: str = Field(min_length=1, pattern=r"^\d+\.\d+\.\d+.*$")
+    changelog_entries: list[str] = Field(min_length=1)
+    rollout_stages: list[RolloutStage] = Field(min_length=1)
+    risk_tier: RiskTier
+    notes: str = ""
+
+
+class IncidentSeverity(StrEnum):
+    SEV1 = "sev1"
+    SEV2 = "sev2"
+    SEV3 = "sev3"
+    SEV4 = "sev4"
+
+
+class IncidentNote(Contract):
+    """Output from the SRE agent: incident triage and recommended action."""
+
+    severity: IncidentSeverity
+    summary: str = Field(min_length=1)
+    root_cause_hypothesis: str = Field(min_length=1)
+    correlated_changes: list[str] = Field(
+        default_factory=list, description="Recent PRs, releases, or config changes."
+    )
+    recommended_action: Literal["rollback", "hotfix", "monitor", "escalate"]
+    action_detail: str = Field(
+        min_length=1,
+        description=(
+            "What to do: rollback command, hotfix Work Order draft, or escalation question."
+        ),
+    )
+    metrics_snapshot: dict[str, str | float] = Field(
+        default_factory=dict, description="Key metrics at time of incident."
+    )
+
+
+class DocsResult(Contract):
+    """Output from the Docs agent: what docs were updated and why."""
+
+    summary: str = Field(min_length=1)
+    files_updated: list[str] = Field(default_factory=list)
+    sections_added: list[str] = Field(default_factory=list, description="New sections or pages.")
+    sections_updated: list[str] = Field(
+        default_factory=list, description="Sections changed to match new behaviour."
+    )
+    sections_removed: list[str] = Field(
+        default_factory=list, description="Deprecated or deleted content."
+    )
+
+
 # --- Approval system (Phase 2b) ---------------------------------------------
 
 
@@ -410,6 +503,11 @@ OUTPUT_SCHEMAS: dict[str, type[BaseModel]] = {
     "IntegrationResult": IntegrationResult,
     "SecurityReport": SecurityReport,
     "TestReport": TestReport,
+    "SpecResult": SpecResult,
+    "DesignDoc": DesignDoc,
+    "ReleaseResult": ReleaseResult,
+    "IncidentNote": IncidentNote,
+    "DocsResult": DocsResult,
 }
 
 EXPORTED_SCHEMAS: dict[str, type[BaseModel]] = {

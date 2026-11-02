@@ -1,0 +1,79 @@
+{
+  "$defs": {
+    "IncidentSeverity": {
+      "enum": [
+        "sev1",
+        "sev2",
+        "sev3",
+        "sev4"
+      ],
+      "title": "IncidentSeverity",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Output from the SRE agent: incident triage and recommended action.",
+  "properties": {
+    "severity": {
+      "$ref": "#/$defs/IncidentSeverity"
+    },
+    "summary": {
+      "minLength": 1,
+      "title": "Summary",
+      "type": "string"
+    },
+    "root_cause_hypothesis": {
+      "minLength": 1,
+      "title": "Root Cause Hypothesis",
+      "type": "string"
+    },
+    "correlated_changes": {
+      "description": "Recent PRs, releases, or config changes.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Correlated Changes",
+      "type": "array"
+    },
+    "recommended_action": {
+      "enum": [
+        "rollback",
+        "hotfix",
+        "monitor",
+        "escalate"
+      ],
+      "title": "Recommended Action",
+      "type": "string"
+    },
+    "action_detail": {
+      "description": "What to do: rollback command, hotfix Work Order draft, or escalation question.",
+      "minLength": 1,
+      "title": "Action Detail",
+      "type": "string"
+    },
+    "metrics_snapshot": {
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "number"
+          }
+        ]
+      },
+      "description": "Key metrics at time of incident.",
+      "title": "Metrics Snapshot",
+      "type": "object"
+    }
+  },
+  "required": [
+    "severity",
+    "summary",
+    "root_cause_hypothesis",
+    "recommended_action",
+    "action_detail"
+  ],
+  "title": "IncidentNote",
+  "type": "object"
+}

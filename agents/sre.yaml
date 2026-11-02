@@ -1,0 +1,9 @@
+name: sre
+version: 1
+description: Triages production alerts, correlates with recent changes, proposes rollback or fix.
+model_tier: mid
+system_prompt: prompts/sre.md
+tools: [read_file, list_files, search_code, escalate, submit_result]
+budget: {tokens: 2000000, usd: 10, wall_clock_s: 1800, turns: 80}
+gates: []
+output_schema: IncidentNote

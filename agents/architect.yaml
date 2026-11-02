@@ -1,0 +1,9 @@
+name: architect
+version: 1
+description: Designs non-trivial changes and writes ADRs defining interfaces and trade-offs.
+model_tier: frontier
+system_prompt: prompts/architect.md
+tools: [read_file, list_files, search_code, escalate, submit_result]
+budget: {tokens: 3000000, usd: 18, wall_clock_s: 2400, turns: 100}
+gates: []
+output_schema: DesignDoc

@@ -1,0 +1,99 @@
+{
+  "$defs": {
+    "RiskTier": {
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "title": "RiskTier",
+      "type": "string"
+    },
+    "RolloutStage": {
+      "additionalProperties": false,
+      "description": "One stage of a release rollout.",
+      "properties": {
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "target": {
+          "description": "e.g. 'canary', '50%', '100%', 'region-eu'",
+          "minLength": 1,
+          "title": "Target",
+          "type": "string"
+        },
+        "wait_duration": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "e.g. '15m', '1h'; how long to monitor before next stage.",
+          "title": "Wait Duration"
+        },
+        "success_criteria": {
+          "description": "Metrics or checks that must pass.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Success Criteria",
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "target"
+      ],
+      "title": "RolloutStage",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Output from the Release agent: version, changelog, and rollout plan.",
+  "properties": {
+    "version": {
+      "minLength": 1,
+      "pattern": "^\\d+\\.\\d+\\.\\d+.*$",
+      "title": "Version",
+      "type": "string"
+    },
+    "changelog_entries": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Changelog Entries",
+      "type": "array"
+    },
+    "rollout_stages": {
+      "items": {
+        "$ref": "#/$defs/RolloutStage"
+      },
+      "minItems": 1,
+      "title": "Rollout Stages",
+      "type": "array"
+    },
+    "risk_tier": {
+      "$ref": "#/$defs/RiskTier"
+    },
+    "notes": {
+      "default": "",
+      "title": "Notes",
+      "type": "string"
+    }
+  },
+  "required": [
+    "version",
+    "changelog_entries",
+    "rollout_stages",
+    "risk_tier"
+  ],
+  "title": "ReleaseResult",
+  "type": "object"
+}
