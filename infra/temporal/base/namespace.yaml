@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: software-factory
+  labels:
+    name: software-factory
+    app.kubernetes.io/name: software-factory
+    app.kubernetes.io/component: ai-agent-platform

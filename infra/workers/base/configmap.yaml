@@ -1,0 +1,36 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: factory-worker-config
+  namespace: software-factory
+data:
+  worker.yaml: |
+    temporal:
+      address: temporal-frontend.software-factory.svc.cluster.local:7233
+      namespace: default
+      task_queue: factory-tasks
+      
+    worker:
+      max_concurrent_activities: 10
+      max_concurrent_workflow_tasks: 50
+      max_activities_per_second: 100
+      graceful_shutdown_timeout: 30s
+      
+    sandbox:
+      runtime_class: gvisor
+      cpu_limit: "2"
+      memory_limit: 4Gi
+      ephemeral_storage_limit: 10Gi
+      network_policy: restricted
+      
+    telemetry:
+      metrics_port: 9090
+      health_port: 8080
+      log_level: info
+      otel_endpoint: ""
+      
+    budget:
+      max_wall_clock_s: 3600
+      max_tokens: 5000000
+      max_usd: 50

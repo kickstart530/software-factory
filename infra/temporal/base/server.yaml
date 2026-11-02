@@ -1,0 +1,401 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: temporal-config
+  namespace: software-factory
+data:
+  config.yaml: |
+    log:
+      stdout: true
+      level: info
+      
+    persistence:
+      defaultStore: default
+      visibilityStore: visibility
+      numHistoryShards: 512
+      datastores:
+        default:
+          sql:
+            pluginName: postgres
+            databaseName: temporal
+            connectAddr: postgres.software-factory.svc.cluster.local:5432
+            connectProtocol: tcp
+            user: temporal
+            password: "{{ .Env.POSTGRES_PASSWORD }}"
+            maxConns: 20
+            maxIdleConns: 20
+            maxConnLifetime: 1h
+        visibility:
+          sql:
+            pluginName: postgres
+            databaseName: temporal_visibility
+            connectAddr: postgres.software-factory.svc.cluster.local:5432
+            connectProtocol: tcp
+            user: temporal
+            password: "{{ .Env.POSTGRES_PASSWORD }}"
+            maxConns: 10
+            maxIdleConns: 10
+            maxConnLifetime: 1h
+    
+    global:
+      membership:
+        maxJoinDuration: 30s
+        broadcastAddress: ""
+      pprof:
+        port: 0
+      metrics:
+        prometheus:
+          timerType: histogram
+          listenAddress: "0.0.0.0:9090"
+    
+    services:
+      frontend:
+        rpc:
+          grpcPort: 7233
+          membershipPort: 6933
+          bindOnLocalHost: false
+        metrics:
+          prometheus:
+            timerType: histogram
+            listenAddress: "0.0.0.0:9090"
+      
+      matching:
+        rpc:
+          grpcPort: 7235
+          membershipPort: 6935
+          bindOnLocalHost: false
+        metrics:
+          prometheus:
+            timerType: histogram
+            listenAddress: "0.0.0.0:9091"
+      
+      history:
+        rpc:
+          grpcPort: 7234
+          membershipPort: 6934
+          bindOnLocalHost: false
+        metrics:
+          prometheus:
+            timerType: histogram
+            listenAddress: "0.0.0.0:9092"
+      
+      worker:
+        rpc:
+          grpcPort: 7239
+          membershipPort: 6939
+          bindOnLocalHost: false
+        metrics:
+          prometheus:
+            timerType: histogram
+            listenAddress: "0.0.0.0:9093"
+    
+    clusterMetadata:
+      enableGlobalNamespace: false
+      failoverVersionIncrement: 10
+      masterClusterName: "active"
+      currentClusterName: "active"
+      clusterInformation:
+        active:
+          enabled: true
+          initialFailoverVersion: 1
+          rpcName: "frontend"
+          rpcAddress: "temporal-frontend:7233"
+    
+    dcRedirectionPolicy:
+      policy: "noop"
+    
+    publicClient:
+      hostPort: "temporal-frontend:7233"
+    
+    archival:
+      history:
+        state: "disabled"
+      visibility:
+        state: "disabled"
+    
+    namespaceDefaults:
+      archival:
+        history:
+          state: "disabled"
+        visibility:
+          state: "disabled"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: temporal-frontend
+  namespace: software-factory
+  labels:
+    app: temporal
+    component: frontend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: temporal
+      component: frontend
+  template:
+    metadata:
+      labels:
+        app: temporal
+        component: frontend
+    spec:
+      initContainers:
+        - name: wait-for-db
+          image: postgres:15-alpine
+          command:
+            - sh
+            - -c
+            - |
+              until pg_isready -h postgres.software-factory.svc.cluster.local -U temporal; do
+                echo "Waiting for postgres..."
+                sleep 2
+              done
+        - name: setup-schema
+          image: temporalio/admin-tools:1.22.4
+          command:
+            - /bin/sh
+            - -c
+            - |
+              temporal-sql-tool --plugin postgres --ep postgres.software-factory.svc.cluster.local \
+                -u temporal -p "$POSTGRES_PASSWORD" --db temporal setup-schema -v 0.0
+              temporal-sql-tool --plugin postgres --ep postgres.software-factory.svc.cluster.local \
+                -u temporal -p "$POSTGRES_PASSWORD" --db temporal update-schema -d /etc/temporal/schema/postgresql/v96/temporal/versioned
+              temporal-sql-tool --plugin postgres --ep postgres.software-factory.svc.cluster.local \
+                -u temporal -p "$POSTGRES_PASSWORD" --db temporal_visibility setup-schema -v 0.0
+              temporal-sql-tool --plugin postgres --ep postgres.software-factory.svc.cluster.local \
+                -u temporal -p "$POSTGRES_PASSWORD" --db temporal_visibility update-schema -d /etc/temporal/schema/postgresql/v96/visibility/versioned
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: temporal-postgres-secret
+                  key: password
+      containers:
+        - name: temporal-frontend
+          image: temporalio/server:1.22.4
+          args:
+            - frontend
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: temporal-postgres-secret
+                  key: password
+            - name: SERVICES
+              value: frontend
+            - name: TEMPORAL_CLI_ADDRESS
+              value: "temporal-frontend:7233"
+          ports:
+            - containerPort: 7233
+              name: grpc
+            - containerPort: 9090
+              name: metrics
+          volumeMounts:
+            - name: config
+              mountPath: /etc/temporal/config
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          livenessProbe:
+            tcpSocket:
+              port: 7233
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: 7233
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: config
+          configMap:
+            name: temporal-config
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: temporal-history
+  namespace: software-factory
+  labels:
+    app: temporal
+    component: history
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: temporal
+      component: history
+  template:
+    metadata:
+      labels:
+        app: temporal
+        component: history
+    spec:
+      containers:
+        - name: temporal-history
+          image: temporalio/server:1.22.4
+          args:
+            - history
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: temporal-postgres-secret
+                  key: password
+            - name: SERVICES
+              value: history
+          ports:
+            - containerPort: 7234
+              name: grpc
+            - containerPort: 9092
+              name: metrics
+          volumeMounts:
+            - name: config
+              mountPath: /etc/temporal/config
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: 2000m
+              memory: 2Gi
+          livenessProbe:
+            tcpSocket:
+              port: 7234
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: 7234
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: config
+          configMap:
+            name: temporal-config
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: temporal-matching
+  namespace: software-factory
+  labels:
+    app: temporal
+    component: matching
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: temporal
+      component: matching
+  template:
+    metadata:
+      labels:
+        app: temporal
+        component: matching
+    spec:
+      containers:
+        - name: temporal-matching
+          image: temporalio/server:1.22.4
+          args:
+            - matching
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: temporal-postgres-secret
+                  key: password
+            - name: SERVICES
+              value: matching
+          ports:
+            - containerPort: 7235
+              name: grpc
+            - containerPort: 9091
+              name: metrics
+          volumeMounts:
+            - name: config
+              mountPath: /etc/temporal/config
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          livenessProbe:
+            tcpSocket:
+              port: 7235
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: 7235
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: config
+          configMap:
+            name: temporal-config
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: temporal-worker
+  namespace: software-factory
+  labels:
+    app: temporal
+    component: worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: temporal
+      component: worker
+  template:
+    metadata:
+      labels:
+        app: temporal
+        component: worker
+    spec:
+      containers:
+        - name: temporal-worker
+          image: temporalio/server:1.22.4
+          args:
+            - worker
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: temporal-postgres-secret
+                  key: password
+            - name: SERVICES
+              value: worker
+          ports:
+            - containerPort: 7239
+              name: grpc
+            - containerPort: 9093
+              name: metrics
+          volumeMounts:
+            - name: config
+              mountPath: /etc/temporal/config
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+      volumes:
+        - name: config
+          configMap:
+            name: temporal-config
