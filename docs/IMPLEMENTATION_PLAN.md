@@ -16,9 +16,10 @@ harness is built first and every agent is built on it.
 
 | Phase | State | What exists |
 |---|---|---|
-| 0. Foundations | **Done (repo side)** | ADR-0001..0008 in [`docs/adr/`](adr/); core contracts in `factory/schemas.py`, exported to `schemas/`; CI workflow. Cloud IaC is still to do. |
+| 0. Foundations | **Partial** | ADR-0001..0008 in [`docs/adr/`](adr/); core contracts in `factory/schemas.py`, exported to `schemas/`; CI workflow. Repository foundations are complete. Cloud IaC and hello-world sandbox environment remain open. |
 | 1. Harness MVP | **Core done** | `factory/harness/`: agent loop, tool registry and sandbox tools, policy, hooks, gates, budgets, checkpoints/resume, escalation, telemetry, model client. 50 tests on a scripted model. Still to do: golden task set, replay runner, OTel exporter. |
-| 2. Core pipeline | Started | In-process Supervisor (`factory/orchestrator.py`) and definitions for planner, implementer, reviewer and integrator. Still to do: Temporal, GitHub App, tool gateway, approvals. |
+| 2a. Temporal Supervisor + GitHub App pilot | **In progress** | In-process Supervisor (`factory/orchestrator.py`) for local testing. Temporal workflow/activities implementation in progress. Agent definitions for planner, implementer, reviewer and integrator. Still to do: complete Temporal integration, GitHub App for one pilot repo. |
+| 2b. Gateways + Policy + Approvals | Not started | MCP tool gateway, OPA policy engine integration, human approval service and UI/Slack interface remain to be built. |
 
 ---
 
@@ -188,6 +189,22 @@ labels on the repo.
 **Bounded loops:** every feedback loop (review→fix, CI→fix) has a max iteration
 count. When it runs out, the Supervisor re-plans or escalates. It never spins.
 
+**Phase 2a intake:** the full workflow above requires the Spec agent and approval
+UI (Phase 4). Phase 2a starts with **hand-authored Work Orders** submitted via
+the Temporal API or a simple CLI, skipping the Spec and approval steps. The pilot
+validates orchestration, task execution and PR integration on real work without
+building the full intake pipeline first.
+
+**Local dogfood:** the `factory` CLI runs tasks in-process for development and
+testing. It is not the production runtime. Cloud agents run via Temporal in
+sandboxed Kubernetes pods (Phase 2a); the in-process Supervisor remains as a
+local test harness.
+
+**Code index timing:** the Memory service (§7) including the code index is
+deferred to Phase 4. If Planner or Architect agents must handle large or
+unfamiliar repositories in Phase 2a, a minimal code index (symbol extraction
+only, no vector embeddings) may need to be pulled forward and integrated earlier.
+
 ---
 
 ## 6. Cloud platform
@@ -262,7 +279,8 @@ the agent decides what to pull in and the trace shows why.
 |---|---|---|---|
 | **0. Foundations** | 2 wks | Repo skeleton, IaC for cluster/Temporal/Postgres/object store, Model Gateway stub, OTel pipeline, ADR-0001..0008 for the decisions above | `terraform apply` brings up an environment; a hello-world sandbox runs with tracing |
 | **1. Harness MVP** | 4 wks | Agent loop, tool router, sandbox exec, budgets, checkpoints, hooks, schema-validated outputs, verification gates, transcript store, replay | A single Implementer agent fixes 30% of a 50-task golden set with all gates enforced |
-| **2. Core pipeline** | 4 wks | Supervisor, Planner, Implementer, Reviewer, Integrator; Temporal workflows; GitHub App; Tool Gateway (MCP); policy engine; risk tiers; human approval UI/Slack | Real low-risk Work Orders flow from issue to merged PR on 1–2 pilot repos |
+| **2a. Temporal Supervisor + GitHub App** | 3 wks | Move Supervisor into Temporal workflows/activities (keeping in-process version for local tests); GitHub App integration for one pilot repo; hand-authored Work Order intake | Temporal orchestrates TaskDAG execution on pilot repo; Work Orders submitted manually flow to merged PR |
+| **2b. Gateways + Policy + Approvals** | 3 wks | MCP Tool Gateway, OPA policy engine, risk-tier gating, human approval service (UI + Slack) | Low-risk changes auto-merge; medium/high changes gate on human approval via Slack |
 | **3. Hardening** | 4 wks | Security Reviewer, Test Engineer, injection defences + adversarial evals, Secrets Broker, multi-tenancy, cost dashboards, kill switch, spot/pre-emption tolerance | Pass a security review; ≥ 50% golden-set solve rate; cost per PR within budget |
 | **4. Full lifecycle** | 4–6 wks | Spec, Architect, Release, SRE, Docs agents; memory "lessons" with promotion workflow; canary + auto-rollback | Medium-risk changes shipped end to end with one human approval |
 | **5. Continuous improvement** | ongoing | Eval-gated prompt/model updates, A/B model routing, per-repo tuning, self-generated golden tasks from merged human PRs | Metrics in §9 trend the right way each month |
@@ -332,7 +350,8 @@ TypeScript only for the approval UI.
 
 Done: ADR-0001..0008, the core schemas, and the harness MVP core.
 
-1. **Golden task set + replay runner** (`evals/`): 50 historical tasks with hidden tests, run through `factory run`, scored by gate pass rate, cost and turns. This is the Phase 1 exit test.
-2. **Sandbox runtime + egress proxy**: package the harness as a container image, run it under gVisor on Kubernetes, and prove isolation with a red-team test.
-3. **OpenTelemetry exporter** for the `Tracer` interface, plus transcript storage in object storage.
-4. **Phase 2 start**: move the Supervisor into Temporal, and add the GitHub App and an MCP tool gateway.
+1. **OpenTelemetry exporter** for the `Tracer` interface, plus transcript storage in object storage — observability must be in place before production load.
+2. **Sandbox runtime + egress proxy**: package the harness as a container image, run it under gVisor on Kubernetes, and prove isolation with a red-team test. Cloud sandboxes must exist before real agent load.
+3. **Golden task set + replay runner** (`evals/`): 50 historical tasks with hidden tests, run through `factory run`, scored by gate pass rate, cost and turns. Real evals require a sandbox environment to be meaningful. This is the Phase 1 exit test.
+4. **Phase 2a**: move the Supervisor into Temporal workflows/activities (keeping the in-process version for local tests), and add the GitHub App for one pilot repository. Work intake is manual (hand-authored Work Orders) until the Spec agent and full intake flow are built in Phase 4.
+5. **Phase 2b**: add the MCP tool gateway, integrate OPA for policy-as-code, and build the human approval service (UI + Slack interface).
