@@ -75,17 +75,17 @@ def infer_agent_type(pr_metadata: PRMetadata) -> str:
         return "implementer"
     
     # Check for test-related changes
-    if any(keyword in title_lower or keyword in desc_lower 
-           for keyword in ["test", "coverage", "spec"]):
+    if (any(keyword in title_lower or keyword in desc_lower 
+           for keyword in ["test", "coverage", "spec"]) and
+        all("test" in f.lower() or "spec" in f.lower() 
+            for f in pr_metadata.files_changed)):
         # If only test files changed, it's test engineering
-        if all("test" in f.lower() or "spec" in f.lower() 
-               for f in pr_metadata.files_changed):
-            return "test_engineer"
+        return "test_engineer"
     
     # Check for documentation
-    if any(f.endswith((".md", ".rst", ".txt")) for f in pr_metadata.files_changed):
-        if len(pr_metadata.files_changed) <= 2:
-            return "docs"
+    if (any(f.endswith((".md", ".rst", ".txt")) for f in pr_metadata.files_changed) and
+        len(pr_metadata.files_changed) <= 2):
+        return "docs"
     
     # Default to implementer for most changes
     return "implementer"
