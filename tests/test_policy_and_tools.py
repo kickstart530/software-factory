@@ -83,7 +83,7 @@ def test_edit_requires_unique_match(tmp_path: Path):
 
 def test_large_output_spilled(tmp_path: Path):
     c = ToolContext(workspace=tmp_path, artifacts_dir=tmp_path / "art")
-    out = TOOLS["run_command"].invoke(c, {"command": "python -c \"print('x' * 50000)\""})
+    out = TOOLS["run_command"].invoke(c, {"command": "python3 -c \"print('x' * 50000)\""})
     assert "chars omitted" in out.content and len(out.content) < 25_000
     assert any((tmp_path / "art").iterdir())
 
