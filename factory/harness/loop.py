@@ -145,6 +145,7 @@ class AgentHarness:
                     system=self.system,
                     messages=state.messages,
                     tools=self.tools.definitions(),
+                    work_order_id=state.work_order_id,
                 )
             )
             budget.record_model_call(
@@ -154,8 +155,7 @@ class AgentHarness:
                 response.cache_read_tokens,
                 response.cache_write_tokens,
             )
-            tracer.event(
-                "model.call",
+            event_attrs = dict(
                 task_id=task.id,
                 model=response.model,
                 stop_reason=response.stop_reason,
@@ -163,6 +163,11 @@ class AgentHarness:
                 output_tokens=response.output_tokens,
                 cache_read_tokens=response.cache_read_tokens,
             )
+            if response.experiment_id:
+                event_attrs["experiment_id"] = response.experiment_id
+            if response.variant:
+                event_attrs["variant"] = response.variant
+            tracer.event("model.call", **event_attrs)
             state.messages.append({"role": "assistant", "content": response.content})
 
             if response.stop_reason == "refusal":

@@ -4,7 +4,14 @@ from types import SimpleNamespace
 
 import pytest
 
-from factory.harness.model import AnthropicModelClient, MissingCredentialsError, ModelRequest
+from factory.harness.model import (
+    AnthropicModelClient,
+    ExperimentConfig,
+    ExperimentDefinition,
+    MissingCredentialsError,
+    ModelRequest,
+    VariantConfig,
+)
 
 
 class _Block(SimpleNamespace):
@@ -102,3 +109,186 @@ def test_blank_base_url_ignored(model_config, monkeypatch):
     client = AnthropicModelClient(model_config)
     # anthropic SDK's default base URL
     assert "anthropic.com" in str(client.client.base_url)
+
+
+def test_ab_routing_disabled_experiment(model_config):
+    """When experiment is disabled, use tier default."""
+    experiments = ExperimentConfig(
+        experiments={
+            "test-exp": ExperimentDefinition(
+                enabled=False,
+                tier="frontier",
+                sticky_by="work_order_id",
+                variants={
+                    "control": VariantConfig(weight=50, model="model-a", effort="low"),
+                    "treatment": VariantConfig(weight=50, model="model-b", effort="high"),
+                },
+            )
+        }
+    )
+    sdk = FakeSDK()
+    client = AnthropicModelClient(model_config, client=sdk, experiments=experiments)
+    resp = client.complete(
+        ModelRequest(
+            "frontier", "sys", [{"role": "user", "content": "x"}], [], work_order_id="wo-123"
+        )
+    )
+    kw = sdk.calls[0]
+    assert kw["model"] == "test-model"  # tier default, not experiment variant
+    assert resp.experiment_id is None
+    assert resp.variant is None
+
+
+def test_ab_routing_sticky_assignment(model_config):
+    """Sticky assignment by work_order_id produces deterministic routing."""
+    experiments = ExperimentConfig(
+        experiments={
+            "test-exp": ExperimentDefinition(
+                enabled=True,
+                tier="frontier",
+                sticky_by="work_order_id",
+                variants={
+                    "control": VariantConfig(weight=50, model="model-a", effort="low"),
+                    "treatment": VariantConfig(weight=50, model="model-b", effort="high"),
+                },
+            )
+        }
+    )
+    sdk = FakeSDK()
+    client = AnthropicModelClient(model_config, client=sdk, experiments=experiments)
+
+    # Same work_order_id should always get the same variant
+    resp1 = client.complete(
+        ModelRequest(
+            "frontier", "sys", [{"role": "user", "content": "x"}], [], work_order_id="wo-123"
+        )
+    )
+    resp2 = client.complete(
+        ModelRequest(
+            "frontier", "sys", [{"role": "user", "content": "y"}], [], work_order_id="wo-123"
+        )
+    )
+
+    assert resp1.experiment_id == "test-exp"
+    assert resp1.variant in ["control", "treatment"]
+    assert resp2.variant == resp1.variant  # same variant for same work_order_id
+
+    # Different work_order_id may get different variant
+    resp3 = client.complete(
+        ModelRequest(
+            "frontier", "sys", [{"role": "user", "content": "z"}], [], work_order_id="wo-456"
+        )
+    )
+    assert resp3.experiment_id == "test-exp"
+    assert resp3.variant in ["control", "treatment"]
+
+
+def test_ab_routing_tenant_sticky(model_config):
+    """Sticky assignment by tenant_id."""
+    experiments = ExperimentConfig(
+        experiments={
+            "test-exp": ExperimentDefinition(
+                enabled=True,
+                tier="frontier",
+                sticky_by="tenant_id",
+                variants={
+                    "control": VariantConfig(weight=50, model="model-a", effort="low"),
+                    "treatment": VariantConfig(weight=50, model="model-b", effort="high"),
+                },
+            )
+        }
+    )
+    sdk = FakeSDK()
+    client = AnthropicModelClient(model_config, client=sdk, experiments=experiments)
+
+    resp1 = client.complete(
+        ModelRequest("frontier", "sys", [{"role": "user", "content": "x"}], [], tenant_id="t-123")
+    )
+    resp2 = client.complete(
+        ModelRequest("frontier", "sys", [{"role": "user", "content": "y"}], [], tenant_id="t-123")
+    )
+
+    assert resp1.experiment_id == "test-exp"
+    assert resp1.variant in ["control", "treatment"]
+    assert resp2.variant == resp1.variant  # same variant for same tenant_id
+
+
+def test_ab_routing_variant_model_and_effort(model_config):
+    """Experiment variants override tier model and effort."""
+    experiments = ExperimentConfig(
+        experiments={
+            "test-exp": ExperimentDefinition(
+                enabled=True,
+                tier="frontier",
+                sticky_by="work_order_id",
+                variants={
+                    "control": VariantConfig(weight=1, model="override-model", effort="medium"),
+                },
+            )
+        }
+    )
+    sdk = FakeSDK()
+    client = AnthropicModelClient(model_config, client=sdk, experiments=experiments)
+
+    resp = client.complete(
+        ModelRequest(
+            "frontier", "sys", [{"role": "user", "content": "x"}], [], work_order_id="wo-123"
+        )
+    )
+    kw = sdk.calls[0]
+    assert kw["model"] == "override-model"
+    assert kw["output_config"] == {"effort": "medium"}
+    assert resp.experiment_id == "test-exp"
+    assert resp.variant == "control"
+
+
+def test_ab_routing_no_experiment_for_tier(model_config):
+    """Request for a tier with no active experiment uses tier default."""
+    experiments = ExperimentConfig(
+        experiments={
+            "test-exp": ExperimentDefinition(
+                enabled=True,
+                tier="mid",  # experiment is for mid tier
+                sticky_by="work_order_id",
+                variants={
+                    "control": VariantConfig(weight=50, model="model-a", effort="low"),
+                },
+            )
+        }
+    )
+    sdk = FakeSDK()
+    client = AnthropicModelClient(model_config, client=sdk, experiments=experiments)
+
+    resp = client.complete(
+        ModelRequest(
+            "frontier", "sys", [{"role": "user", "content": "x"}], [], work_order_id="wo-123"
+        )
+    )
+    kw = sdk.calls[0]
+    assert kw["model"] == "test-model"  # tier default
+    assert resp.experiment_id is None
+    assert resp.variant is None
+
+
+def test_experiment_definition_weighted_selection():
+    """ExperimentDefinition.select_variant respects weights."""
+    exp = ExperimentDefinition(
+        enabled=True,
+        tier="frontier",
+        sticky_by="work_order_id",
+        variants={
+            "control": VariantConfig(weight=80, model="model-a", effort="low"),
+            "treatment": VariantConfig(weight=20, model="model-b", effort="high"),
+        },
+    )
+
+    # Deterministic assignment based on hash
+    assignments = {}
+    for i in range(100):
+        variant_name, _ = exp.select_variant(f"wo-{i}")
+        assignments[variant_name] = assignments.get(variant_name, 0) + 1
+
+    # With 100 samples, expect roughly 80/20 split (allowing some variance)
+    assert "control" in assignments
+    assert "treatment" in assignments
+    assert assignments["control"] > assignments["treatment"]  # control has higher weight
