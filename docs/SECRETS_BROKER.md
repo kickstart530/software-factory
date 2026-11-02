@@ -60,7 +60,7 @@ from factory.secrets.backends import EnvFileBackend
 backend = EnvFileBackend(
     state_dir=Path(".factory-runs/secrets"),
     secrets_file=Path("secrets.json"),  # optional
-    env_file=Path(".env"),              # optional
+    env_file=Path(".env"),  # optional
 )
 ```
 
@@ -89,7 +89,7 @@ from factory.secrets.backends import VaultBackend
 backend = VaultBackend(
     state_dir=Path(".factory-runs/secrets"),
     vault_path="github/token",  # Vault secret engine path
-    vault_role="agent",         # Role to use for requests
+    vault_role="agent",  # Role to use for requests
 )
 ```
 

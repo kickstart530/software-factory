@@ -368,14 +368,18 @@ def build_parser() -> argparse.ArgumentParser:
     secrets_mint.add_argument("--branch", help="branch restriction")
     secrets_mint.add_argument("--tool-name", required=True, help="tool name (e.g. gh, git)")
     secrets_mint.add_argument("--scopes", nargs="*", help="required scopes")
-    secrets_mint.add_argument("--ttl", type=int, default=3600, help="TTL in seconds (default: 3600)")
+    secrets_mint.add_argument(
+        "--ttl", type=int, default=3600, help="TTL in seconds (default: 3600)"
+    )
     secrets_mint.add_argument("--reason", help="reason for minting")
     secrets_mint.add_argument("--state-dir", default=".factory-runs", help="state directory")
     secrets_mint.set_defaults(func=cmd_secrets_mint)
 
     secrets_list = secrets_sub.add_parser("list", help="list credentials")
     secrets_list.add_argument("--task-id", help="filter by task ID")
-    secrets_list.add_argument("--status", choices=[s.value for s in SecretStatus], help="filter by status")
+    secrets_list.add_argument(
+        "--status", choices=[s.value for s in SecretStatus], help="filter by status"
+    )
     secrets_list.add_argument("--state-dir", default=".factory-runs", help="state directory")
     secrets_list.set_defaults(func=cmd_secrets_list)
 

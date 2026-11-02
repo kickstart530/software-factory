@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from abc import ABC, abstractmethod
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
@@ -160,4 +160,4 @@ class SecretsBroker(ABC):
     @staticmethod
     def is_expired(credential: Credential) -> bool:
         """Check if a credential has expired."""
-        return datetime.now(timezone.utc) >= credential.expires_at
+        return datetime.now(UTC) >= credential.expires_at

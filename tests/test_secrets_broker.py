@@ -15,14 +15,13 @@ import json
 import os
 import tempfile
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from factory.secrets import (
-    Credential,
     MintRequest,
     SecretStatus,
 )
@@ -74,7 +73,7 @@ class TestEnvFileBackend:
         assert credential.credential_id.startswith("cred_")
 
         # Verify expiry is approximately correct
-        expected_expiry = datetime.now(timezone.utc) + timedelta(seconds=3600)
+        expected_expiry = datetime.now(UTC) + timedelta(seconds=3600)
         assert abs((credential.expires_at - expected_expiry).total_seconds()) < 5
 
     def test_credential_never_exposes_secret(self, backend):

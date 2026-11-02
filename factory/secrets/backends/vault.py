@@ -14,10 +14,11 @@ Full implementation depends on specific Vault secret engines and policies.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import secrets
 import subprocess
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -172,7 +173,7 @@ class VaultBackend(SecretsBroker):
             if not token_value:
                 raise ValueError("Vault did not return a token")
 
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             expires_at = now + timedelta(seconds=lease_duration)
 
             credential = Credential(
@@ -213,9 +214,7 @@ class VaultBackend(SecretsBroker):
         if not data:
             return None
 
-        data_copy = {
-            k: v for k, v in data.items() if not k.startswith("_")
-        }
+        data_copy = {k: v for k, v in data.items() if not k.startswith("_")}
         cred = Credential.model_validate(data_copy)
 
         # Auto-expire if needed
@@ -275,15 +274,13 @@ class VaultBackend(SecretsBroker):
         # Revoke the Vault lease if present
         lease_id = cred_data.get("_vault_lease_id")
         if lease_id:
-            try:
-                self._vault_revoke(lease_id)
-            except Exception:
+            with contextlib.suppress(Exception):
                 # Continue even if Vault revoke fails (lease will expire naturally)
-                pass
+                self._vault_revoke(lease_id)
 
         # Mark as revoked locally
         cred_data["status"] = SecretStatus.REVOKED.value
-        cred_data["revoked_at"] = datetime.now(timezone.utc).isoformat()
+        cred_data["revoked_at"] = datetime.now(UTC).isoformat()
         self._save_credentials()
         return True
 

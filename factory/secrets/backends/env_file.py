@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import os
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from threading import RLock
 from typing import Any
@@ -127,7 +127,7 @@ class EnvFileBackend(SecretsBroker):
             # Generate credential ID
             credential_id = f"cred_{secrets.token_hex(12)}"
 
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             expires_at = now + timedelta(seconds=request.ttl_seconds)
 
             credential = Credential(
@@ -222,7 +222,7 @@ class EnvFileBackend(SecretsBroker):
                 return False
 
             cred_data["status"] = SecretStatus.REVOKED.value
-            cred_data["revoked_at"] = datetime.now(timezone.utc).isoformat()
+            cred_data["revoked_at"] = datetime.now(UTC).isoformat()
             self._save_credentials()
             return True
 

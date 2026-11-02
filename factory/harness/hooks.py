@@ -45,14 +45,14 @@ def redact_secrets(text: str) -> str:
     """Redact known secret patterns and minted credential values from text."""
     for pattern, name in SECRET_PATTERNS:
         text = re.sub(pattern, f"[REDACTED:{name}]", text)
-    
+
     # Redact any minted secrets by their fingerprints
     # This catches actual secret values if they somehow leak into context
-    for fingerprint in _MINTED_SECRET_FINGERPRINTS:
+    for _fingerprint in _MINTED_SECRET_FINGERPRINTS:
         # We don't have the original secret here, but the fingerprint helps audit
         # In practice, secrets should never reach this point
         pass
-    
+
     return text
 
 
