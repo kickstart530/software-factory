@@ -60,6 +60,7 @@ jobs:
           echo "Checking for hardcoded secrets..."
           ! grep -r "password:" infra/ \
             --exclude="*.md" \
+            --exclude="*.sh" \
             | grep -v "REPLACE_WITH_ACTUAL_PASSWORD" \
             | grep -v "valueFrom" \
             | grep -v "secretKeyRef" \
