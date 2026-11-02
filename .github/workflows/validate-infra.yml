@@ -19,50 +19,41 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up kubectl
-        uses: azure/setup-kubectl@v3
-        with:
-          version: 'v1.28.0'
-
       - name: Set up kustomize
         run: |
           curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
           sudo mv kustomize /usr/local/bin/
 
+      - name: Set up kubeconform
+        run: |
+          curl -LO https://github.com/yannh/kubeconform/releases/download/v0.6.4/kubeconform-linux-amd64.tar.gz
+          tar xf kubeconform-linux-amd64.tar.gz
+          sudo mv kubeconform /usr/local/bin/
+
       - name: Validate Temporal base manifests
         run: |
           echo "Building Temporal base manifests..."
-          kustomize build infra/temporal/base > /tmp/temporal-base.yaml
-          echo "Validating with kubectl..."
-          kubectl apply --dry-run=client -f /tmp/temporal-base.yaml
+          kustomize build infra/temporal/base | kubeconform -strict -summary
 
       - name: Validate Temporal production manifests
         run: |
           echo "Building Temporal production manifests..."
-          kustomize build infra/temporal/overlays/production > /tmp/temporal-prod.yaml
-          echo "Validating with kubectl..."
-          kubectl apply --dry-run=client -f /tmp/temporal-prod.yaml
+          kustomize build infra/temporal/overlays/production | kubeconform -strict -summary
 
       - name: Validate Worker base manifests
         run: |
           echo "Building Worker base manifests..."
-          kustomize build infra/workers/base > /tmp/workers-base.yaml
-          echo "Validating with kubectl..."
-          kubectl apply --dry-run=client -f /tmp/workers-base.yaml
+          kustomize build infra/workers/base | kubeconform -strict -summary
 
       - name: Validate Worker production manifests
         run: |
           echo "Building Worker production manifests..."
-          kustomize build infra/workers/overlays/production > /tmp/workers-prod.yaml
-          echo "Validating with kubectl..."
-          kubectl apply --dry-run=client -f /tmp/workers-prod.yaml
+          kustomize build infra/workers/overlays/production | kubeconform -strict -summary
 
       - name: Validate Worker development manifests
         run: |
           echo "Building Worker development manifests..."
-          kustomize build infra/workers/overlays/development > /tmp/workers-dev.yaml
-          echo "Validating with kubectl..."
-          kubectl apply --dry-run=client -f /tmp/workers-dev.yaml
+          kustomize build infra/workers/overlays/development | kubeconform -strict -summary
 
       - name: Check for secrets in manifests
         run: |

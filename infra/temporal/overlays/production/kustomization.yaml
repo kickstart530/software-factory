@@ -24,5 +24,6 @@ patches:
       kind: Deployment
       name: temporal-matching
 
-commonLabels:
-  environment: production
+labels:
+  - pairs:
+      environment: production

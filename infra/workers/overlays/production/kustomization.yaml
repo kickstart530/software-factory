@@ -37,5 +37,6 @@ patches:
         path: /spec/maxReplicas
         value: 20
 
-commonLabels:
-  environment: production
+labels:
+  - pairs:
+      environment: production
