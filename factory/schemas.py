@@ -78,6 +78,10 @@ class WorkOrder(Contract):
     budget: Budget = Field(default_factory=Budget)
     requested_by: str
     labels: list[str] = Field(default_factory=list)
+    tenant_id: str | None = Field(
+        default=None,
+        description="Multi-tenancy: namespace for budget/policy isolation. Defaults to 'default'."
+    )
 
 
 class TaskStatus(StrEnum):
@@ -104,6 +108,10 @@ class Task(Contract):
     )
     branch: str | None = None
     status: TaskStatus = TaskStatus.PENDING
+    tenant_id: str | None = Field(
+        default=None,
+        description="Inherited from WorkOrder; used for budget/policy isolation."
+    )
 
     @model_validator(mode="after")
     def _force_pending_status(self) -> Task:

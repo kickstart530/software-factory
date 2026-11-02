@@ -204,6 +204,19 @@
       },
       "title": "Labels",
       "type": "array"
+    },
+    "tenant_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Multi-tenancy: namespace for budget/policy isolation. Defaults to 'default'.",
+      "title": "Tenant Id"
     }
   },
   "required": [
