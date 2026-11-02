@@ -21,8 +21,8 @@ harness is built first and every agent is built on it.
 | 2a. Temporal Supervisor + GitHub App pilot | **Complete** | In-process Supervisor (`factory/orchestrator.py`) for local testing. Temporal workflow/activities in `factory/temporal_supervisor.py`. Temporal cluster infrastructure in `infra/temporal/`. Sandbox pod spawner with credential isolation in `factory/sandbox/`. GitHub App webhook receiver (`github_app/`) integrated with Temporal workflow starts. Agent definitions for planner, implementer, reviewer and integrator in `agents/`. End-to-end integration operational; production pipeline ready for pilot repository deployment. |
 | 2b. Policy & Approvals | **Complete** | OPA-compatible policy engine (`factory/harness/policy_engine.py`), human approval service (`factory/harness/approvals.py`) with CLI interface (`factory approve` subcommands). Risk-tier computation for path-based and change-based scoring. CLI-first per ADR-0009 (MCP deferred). Integration guide at [`docs/phase2b-integration-guide.md`](phase2b-integration-guide.md). Slack UI for approvals deferred to Phase 4. |
 | 3. Hardening | **Complete** | Security Reviewer + Test Engineer agents, injection + adversarial evals suite, Secrets Broker integration, multi-tenancy support + budget ledger, cost dashboards, kill switch implementation, spot instance + pre-emption handling. PRs #15–#20 merged to main. |
-| 4. Full lifecycle | **Complete** | Spec, Architect, Release, SRE, and Docs agents with schemas in `factory/agents/` and `factory/schemas.py`; memory lessons with promotion workflow in `factory/memory/`; canary deployment + auto-rollback in `factory/release/`. Delivered in PRs #21 (plan status), #22 (agents + schemas), #24 (memory lessons + promotion), #23 (canary + rollback). |
-| 5. Continuous improvement | **In progress** | Starting eval-gated prompt/model updates, A/B model routing, per-repo tuning, and self-generated golden tasks from merged human PRs. |
+| 4. Full lifecycle | **Complete** | Spec, Architect, Release, SRE, and Docs agents with schemas in `factory/agents/` and `factory/schemas.py`; memory lessons with promotion workflow in `factory/memory/`; canary deployment + auto-rollback in `factory/release/`. Delivered in PRs #21 (plan status), #22 (agents + schemas), #24 (memory lessons + promotion), #23 (canary + rollback). Phase status updated in [#26](https://github.com/kickstart530/software-factory/pull/26). |
+| 5. Continuous improvement | **Complete** | Eval-gated prompt/model updates ([#27](https://github.com/kickstart530/software-factory/pull/27), `factory evals gate`, docs/EVAL_GATING.md), A/B model routing ([#28](https://github.com/kickstart530/software-factory/pull/28), `config/experiments.yaml`, `factory experiments`), golden task generation ([#29](https://github.com/kickstart530/software-factory/pull/29), `factory golden`, factory/golden_gen/), per-repo tuning ([#30](https://github.com/kickstart530/software-factory/pull/30), `.factory/repo.yaml`, `factory repo-config`). Continuous-improvement loops now operational via CLI. |
 
 ---
 
@@ -366,11 +366,15 @@ Security Reviewer + Test Engineer agents deployed. Injection and adversarial eva
 
 **Phase 4: Full lifecycle (Complete)**
 
-Full lifecycle agents (Spec, Architect, Release, SRE, Docs) with schemas and agent definitions; memory lessons with promotion workflow; canary deployment + auto-rollback. Delivered in PRs #21 (plan status), #22 (agents + schemas), #24 (memory lessons + promotion), #23 (canary + rollback).
+Full lifecycle agents (Spec, Architect, Release, SRE, Docs) with schemas and agent definitions in `factory/agents/` and `factory/schemas.py`; memory lessons with promotion workflow in `factory/memory/`; canary deployment + auto-rollback in `factory/release/`. Delivered in PRs #21 (plan status), #22 (agents + schemas), #24 (memory lessons + promotion), #23 (canary + rollback). Phase status updated in [#26](https://github.com/kickstart530/software-factory/pull/26).
 
-**Phase 5: Continuous improvement (Current focus)**
+**Phase 5: Continuous improvement (Complete)**
 
-1. **Eval-gated prompt/model updates**: changes to agent prompts or model selections must pass the golden-suite regression test before merge.
-2. **A/B model routing**: route tasks to different model tiers or providers in production, compare outcomes, and promote the winner.
-3. **Per-repo tuning**: adapt agent behavior (tool policies, gate thresholds, prompts) based on repository-specific conventions and historical run data.
-4. **Self-generated golden tasks**: extract representative tasks from merged human PRs to continuously expand the eval suite with real-world scenarios.
+Continuous-improvement infrastructure deployed and operational via CLI:
+
+1. **Eval-gated prompt/model updates** ([#27](https://github.com/kickstart530/software-factory/pull/27)): `factory evals gate` command blocks harness, prompt, and model changes unless golden-suite solve rate improves. Documented in docs/EVAL_GATING.md.
+2. **A/B model routing** ([#28](https://github.com/kickstart530/software-factory/pull/28)): `config/experiments.yaml` declares model tier A/B tests; `factory experiments` CLI manages experiment lifecycle and reports metrics.
+3. **Golden task generation** ([#29](https://github.com/kickstart530/software-factory/pull/29)): `factory golden` command mines merged human PRs for representative tasks, storing them in factory/golden_gen/ for eval suite expansion.
+4. **Per-repo tuning** ([#30](https://github.com/kickstart530/software-factory/pull/30)): `.factory/repo.yaml` configuration file per repository; `factory repo-config` CLI validates and applies repo-specific agent budgets, gates, and tool allowlists.
+
+**Roadmap status:** Phases 0–5 complete. Next work is operational use and dogfooding: applying the factory to real work orders, measuring §9 metrics (first-push CI pass rate, review findings precision, cost per PR, lead time), and iterating on agent prompts, policies, and harness capabilities based on production transcripts and traces.
