@@ -19,6 +19,7 @@ from factory.harness import (
     FileCheckpointStore,
     HarnessDeps,
     JsonlTracer,
+    MissingCredentialsError,
     ModelConfig,
     ToolContext,
 )
@@ -65,16 +66,24 @@ def _harness(args: argparse.Namespace, task: Task) -> AgentHarness:
 
 def cmd_run(args: argparse.Namespace) -> int:
     task = Task.model_validate_json(Path(args.task).read_text())
-    result = _harness(args, task).run(task)
-    print(result.model_dump_json(indent=2))
-    return 0 if result.status == "succeeded" else 1
+    try:
+        result = _harness(args, task).run(task)
+        print(result.model_dump_json(indent=2))
+        return 0 if result.status == "succeeded" else 1
+    except MissingCredentialsError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
 
 
 def cmd_answer(args: argparse.Namespace) -> int:
     task = Task.model_validate_json(Path(args.task).read_text())
-    result = _harness(args, task).answer_escalation(task, args.answer)
-    print(result.model_dump_json(indent=2))
-    return 0 if result.status == "succeeded" else 1
+    try:
+        result = _harness(args, task).answer_escalation(task, args.answer)
+        print(result.model_dump_json(indent=2))
+        return 0 if result.status == "succeeded" else 1
+    except MissingCredentialsError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
 
 
 def cmd_approve_list(args: argparse.Namespace) -> int:

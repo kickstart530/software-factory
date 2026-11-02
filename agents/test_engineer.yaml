@@ -1,0 +1,10 @@
+name: test_engineer
+version: 1
+description: Adds or strengthens tests; reviews test coverage and applies mutation testing where practical.
+model_tier: mid
+system_prompt: prompts/test_engineer.md
+tools: [read_file, write_file, edit_file, list_files, search_code, run_command, escalate, submit_result]
+budget: {tokens: 3000000, usd: 15, wall_clock_s: 2400, turns: 100, tool_calls: 300}
+gates: [unit_tests, lint]
+max_gate_attempts: 3
+output_schema: TestReport
