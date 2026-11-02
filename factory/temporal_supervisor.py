@@ -35,9 +35,9 @@ _TASK_RUNNER_REGISTRY: ContextVar[TaskRunner | None] = ContextVar(
 
 def set_task_runner(runner: TaskRunner) -> None:
     """Set the TaskRunner for the current worker context.
-    
+
     Must be called by the worker during initialization, before running activities.
-    
+
     Args:
         runner: A callable that executes tasks (sync or async).
                 Async runners receive heartbeat_callback as a kwarg.
@@ -64,7 +64,7 @@ async def run_task_activity(task_dict: dict[str, Any]) -> dict[str, Any]:
     - Egress network restrictions per policy
     - Explicit credential injection (no ~/.ssh, ~/.netrc mounts)
     - Resource quotas
-    
+
     The TaskRunner (sandbox spawner) is injected via _TASK_RUNNER_REGISTRY,
     which the worker populates during initialization.
     """

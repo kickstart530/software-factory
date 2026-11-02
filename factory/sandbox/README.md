@@ -105,6 +105,7 @@ from temporalio.client import Client
 from factory.temporal_supervisor import create_temporal_worker, TemporalConfig
 from factory.sandbox import run_task_in_sandbox
 
+
 async def main():
     config = TemporalConfig(host="temporal.example.com:7233")
     client = await config.create_client()
@@ -130,7 +131,7 @@ config = SandboxConfig(
     egress=EgressPolicy(
         mode="allowlist",
         allowed_cidrs=[
-            "10.0.0.0/8",      # Internal services
+            "10.0.0.0/8",  # Internal services
             "151.101.0.0/16",  # GitHub
         ],
     ),
@@ -174,23 +175,29 @@ Example (future):
 
 ```python
 # In spawner.py _create_pod_manifest():
-volume_mounts.append({
-    "name": "git-credentials",
-    "mountPath": "/secrets/git",
-    "readOnly": True,
-})
+volume_mounts.append(
+    {
+        "name": "git-credentials",
+        "mountPath": "/secrets/git",
+        "readOnly": True,
+    }
+)
 
-volumes.append({
-    "name": "git-credentials",
-    "secret": {
-        "secretName": f"task-{task.id}-git-creds",
-    },
-})
+volumes.append(
+    {
+        "name": "git-credentials",
+        "secret": {
+            "secretName": f"task-{task.id}-git-creds",
+        },
+    }
+)
 
-env_vars.append({
-    "name": "GIT_ASKPASS",
-    "value": "/secrets/git/askpass.sh",
-})
+env_vars.append(
+    {
+        "name": "GIT_ASKPASS",
+        "value": "/secrets/git/askpass.sh",
+    }
+)
 ```
 
 ## Deployment Prerequisites
@@ -265,6 +272,7 @@ import asyncio
 from factory.sandbox import SandboxSpawner
 from factory.schemas import Task
 
+
 async def test():
     task = Task(
         id="test-001",
@@ -273,10 +281,11 @@ async def test():
         title="Test sandbox",
         instructions="Run a simple command",
     )
-    
+
     spawner = SandboxSpawner()
     result = await spawner.spawn_and_wait(task)
     print(result)
+
 
 asyncio.run(test())
 ```

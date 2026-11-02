@@ -17,12 +17,12 @@ def create_network_policy(
     pod_selector_labels: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Create a Kubernetes NetworkPolicy manifest for sandbox egress control.
-    
+
     Args:
         namespace: Kubernetes namespace for the NetworkPolicy
         egress_policy: Egress policy configuration
         pod_selector_labels: Labels to select sandbox pods (default: app=factory-sandbox)
-        
+
     Returns:
         NetworkPolicy manifest as a dict
     """
@@ -88,13 +88,13 @@ def create_network_policy(
 
 def create_egress_proxy_config(egress_policy: EgressPolicy) -> dict[str, Any]:
     """Create configuration for a domain-aware egress proxy (e.g., Squid, Envoy).
-    
+
     NetworkPolicy alone cannot filter by domain names. For domain-based allowlists,
     an egress proxy is required.
-    
+
     Args:
         egress_policy: Egress policy with allowed_domains
-        
+
     Returns:
         Proxy configuration (format depends on proxy type)
     """

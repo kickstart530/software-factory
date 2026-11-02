@@ -298,13 +298,13 @@ class TestEgressProxyConfig:
 @pytest.mark.asyncio
 class TestSandboxSpawnerIntegration:
     """Integration tests that require a real Kubernetes cluster.
-    
+
     Run with: pytest tests/test_sandbox.py -v --integration
     """
 
     async def test_spawn_and_wait_success(self):
         """Test spawning a real pod that succeeds."""
-        from factory.schemas import Task, TaskStatus
+        from factory.schemas import Task
 
         task = Task(
             id="integ-test-001",

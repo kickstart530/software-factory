@@ -71,9 +71,7 @@ class ResourceQuota(BaseModel):
     cpu_limit: str = Field(default="2000m", description="CPU limit")
     memory_request: str = Field(default="2Gi", description="Memory request (e.g., '2Gi', '4Gi')")
     memory_limit: str = Field(default="4Gi", description="Memory limit")
-    ephemeral_storage_limit: str = Field(
-        default="10Gi", description="Ephemeral storage limit"
-    )
+    ephemeral_storage_limit: str = Field(default="10Gi", description="Ephemeral storage limit")
 
 
 class SandboxConfig(BaseModel):
@@ -106,7 +104,7 @@ class SandboxConfig(BaseModel):
     @classmethod
     def from_env(cls) -> SandboxConfig:
         """Create configuration from environment variables.
-        
+
         Environment variables:
         - FACTORY_SANDBOX_NAMESPACE: Kubernetes namespace
         - FACTORY_SANDBOX_RUNTIME_CLASS: Runtime class name

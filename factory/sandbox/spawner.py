@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import time
 from dataclasses import dataclass
@@ -28,11 +29,11 @@ class SandboxResult:
 
 class SandboxSpawner:
     """Spawns ephemeral Kubernetes pods for agent task execution.
-    
+
     This is a thin interface to Kubernetes for sandbox spawning. It does not
     own cluster IaC or worker deployment manifests. The Temporal activity
     calls this to spawn sandboxes without owning the cluster infrastructure.
-    
+
     Design principles:
     - CLI-first: no MCP, no tool gateway dependencies
     - Thin interface: minimal coupling to Temporal
@@ -43,7 +44,7 @@ class SandboxSpawner:
 
     def __init__(self, config: SandboxConfig | None = None):
         """Initialize the spawner.
-        
+
         Args:
             config: Sandbox configuration. If None, loads from environment.
         """
@@ -78,14 +79,14 @@ class SandboxSpawner:
         self, task: Task, heartbeat_callback: callable | None = None
     ) -> SandboxResult:
         """Spawn a sandbox pod, wait for completion, and return the result.
-        
+
         Args:
             task: The task to execute in the sandbox
             heartbeat_callback: Optional callback to invoke periodically (for Temporal heartbeats)
-            
+
         Returns:
             SandboxResult with execution outcome
-            
+
         Raises:
             RuntimeError: If pod creation or execution fails
         """
@@ -112,9 +113,7 @@ class SandboxSpawner:
             logger.info(f"Pod {pod_name} created in namespace {self.config.namespace}")
 
             # Wait for the pod to complete, with periodic heartbeats
-            result = await self._wait_for_completion(
-                core_v1, pod_name, heartbeat_callback
-            )
+            result = await self._wait_for_completion(core_v1, pod_name, heartbeat_callback)
 
             # Fetch logs
             try:
@@ -145,16 +144,14 @@ class SandboxSpawner:
         except Exception as e:
             logger.error(f"Sandbox spawn failed for task {task.id}: {e}")
             # Attempt cleanup
-            try:
+            with contextlib.suppress(Exception):
                 await self._delete_pod(core_v1, pod_name)
-            except Exception:
-                pass  # Cleanup failure is not critical
 
             raise RuntimeError(f"Sandbox spawn failed: {e}") from e
 
     def _pod_name_for_task(self, task: Task) -> str:
         """Generate a Kubernetes-compliant pod name from a task ID.
-        
+
         DNS-1123: lowercase alphanumeric, '-' or '.', start/end with alphanumeric,
         max 253 chars.
         """
@@ -173,7 +170,7 @@ class SandboxSpawner:
 
     def _create_pod_manifest(self, task: Task, pod_name: str) -> dict[str, Any]:
         """Create a Kubernetes pod manifest for the task.
-        
+
         Security considerations:
         - Clean HOME: no host credential mounts (~/.ssh, ~/.config, ~/.netrc)
         - Explicit credential injection via Secrets Broker (future)
@@ -297,7 +294,7 @@ class SandboxSpawner:
         self, core_v1: Any, pod_name: str, heartbeat_callback: callable | None
     ) -> dict[str, Any]:
         """Poll the pod until it reaches a terminal state.
-        
+
         Returns:
             Dict with 'exit_code' and optional 'error'
         """
@@ -365,17 +362,17 @@ async def run_task_in_sandbox(
     heartbeat_callback: callable | None = None,
 ) -> TaskResult:
     """High-level function to run a task in a sandbox and return a TaskResult.
-    
+
     This is the main entry point for the Temporal activity. It:
     1. Spawns a sandbox pod
     2. Waits for completion with heartbeats
     3. Converts the sandbox result to a TaskResult
-    
+
     Args:
         task: The task to execute
         spawner: Optional SandboxSpawner (creates one if not provided)
         heartbeat_callback: Optional callback for Temporal heartbeats
-        
+
     Returns:
         TaskResult with execution outcome
     """

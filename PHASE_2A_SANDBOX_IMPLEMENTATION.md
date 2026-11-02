@@ -116,6 +116,7 @@ from temporalio.client import Client
 from factory.temporal_supervisor import create_temporal_worker, TemporalConfig
 from factory.sandbox import run_task_in_sandbox
 
+
 async def main():
     config = TemporalConfig(host="temporal.example.com:7233")
     client = await config.create_client()
