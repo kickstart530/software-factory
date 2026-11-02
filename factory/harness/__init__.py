@@ -6,6 +6,7 @@ from factory.harness.hooks import Hooks
 from factory.harness.loop import AgentHarness, HarnessDeps
 from factory.harness.model import (
     AnthropicModelClient,
+    MissingCredentialsError,
     ModelConfig,
     ModelRequest,
     ModelResponse,
@@ -25,6 +26,7 @@ __all__ = [
     "Hooks",
     "JsonlTracer",
     "MemoryTracer",
+    "MissingCredentialsError",
     "ModelConfig",
     "ModelRequest",
     "ModelResponse",
