@@ -9,6 +9,7 @@ as received.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
@@ -17,6 +18,12 @@ import yaml
 from pydantic import BaseModel, ConfigDict
 
 from factory.harness.budget import Price
+
+
+class MissingCredentialsError(Exception):
+    """Raised when required API credentials are missing or blank."""
+
+    pass
 
 
 class TierConfig(BaseModel):
@@ -78,7 +85,17 @@ class AnthropicModelClient:
         if client is None:
             import anthropic
 
-            client = anthropic.Anthropic()
+            api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+            if not api_key:
+                raise MissingCredentialsError(
+                    "ANTHROPIC_API_KEY is required. In GitHub Actions, map it from "
+                    "secrets: `env: ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}`"
+                )
+            base_url = os.environ.get("ANTHROPIC_BASE_URL", "").strip()
+            # The SDK reads ANTHROPIC_BASE_URL from env, so unset it if blank
+            if not base_url and "ANTHROPIC_BASE_URL" in os.environ:
+                del os.environ["ANTHROPIC_BASE_URL"]
+            client = anthropic.Anthropic(api_key=api_key)
         self.client = client
         self.config = config
         self.max_tokens = max_tokens

@@ -9,17 +9,24 @@ from pathlib import Path
 
 from evals import ReplayRunner, load_golden_tasks
 from factory.agents.spec import AgentCatalog
+from factory.control import KillSwitch
+from factory.control.budget_ledger import FileBudgetLedger
+from factory.control.cost_dashboard import CostDashboard
+from factory.control.kill_switch import FileKillSwitchStore
 from factory.harness import (
     AgentHarness,
     AnthropicModelClient,
     FileCheckpointStore,
     HarnessDeps,
     JsonlTracer,
+    MissingCredentialsError,
     ModelConfig,
     ToolContext,
 )
 from factory.harness.approvals import FileBasedApprovalService
 from factory.schemas import EXPORTED_SCHEMAS, ApprovalDecision, RiskTier, Task
+from factory.secrets import MintRequest, SecretStatus
+from factory.secrets.backends import EnvFileBackend
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -61,16 +68,24 @@ def _harness(args: argparse.Namespace, task: Task) -> AgentHarness:
 
 def cmd_run(args: argparse.Namespace) -> int:
     task = Task.model_validate_json(Path(args.task).read_text())
-    result = _harness(args, task).run(task)
-    print(result.model_dump_json(indent=2))
-    return 0 if result.status == "succeeded" else 1
+    try:
+        result = _harness(args, task).run(task)
+        print(result.model_dump_json(indent=2))
+        return 0 if result.status == "succeeded" else 1
+    except MissingCredentialsError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
 
 
 def cmd_answer(args: argparse.Namespace) -> int:
     task = Task.model_validate_json(Path(args.task).read_text())
-    result = _harness(args, task).answer_escalation(task, args.answer)
-    print(result.model_dump_json(indent=2))
-    return 0 if result.status == "succeeded" else 1
+    try:
+        result = _harness(args, task).answer_escalation(task, args.answer)
+        print(result.model_dump_json(indent=2))
+        return 0 if result.status == "succeeded" else 1
+    except MissingCredentialsError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
 
 
 def cmd_approve_list(args: argparse.Namespace) -> int:
@@ -162,6 +177,104 @@ def cmd_approve_deny(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_secrets_mint(args: argparse.Namespace) -> int:
+    """Mint a new task-scoped credential."""
+    state_dir = Path(args.state_dir) / "secrets"
+    backend = EnvFileBackend(state_dir)
+
+    request = MintRequest(
+        task_id=args.task_id,
+        work_order_id=args.work_order_id,
+        repo_url=args.repo_url,
+        branch=args.branch,
+        tool_name=args.tool_name,
+        scopes=args.scopes or [],
+        ttl_seconds=args.ttl,
+        reason=args.reason or "Manual mint via CLI",
+    )
+
+    try:
+        credential = backend.mint(request)
+        print(f"✓ Minted credential: {credential.credential_id}")
+        print(f"  Task: {credential.task_id}")
+        print(f"  Tool: {credential.tool_name}")
+        print(f"  Expires: {credential.expires_at}")
+        print(f"  Fingerprint: {credential.fingerprint}")
+        print("\nNOTE: Secret value injected into environment, never displayed.")
+        return 0
+    except Exception as e:
+        print(f"✗ Failed to mint credential: {e}", file=sys.stderr)
+        return 1
+
+
+def cmd_secrets_list(args: argparse.Namespace) -> int:
+    """List credentials, optionally filtered by task or status."""
+    state_dir = Path(args.state_dir) / "secrets"
+    backend = EnvFileBackend(state_dir)
+
+    status_filter = SecretStatus(args.status) if args.status else None
+    credentials = backend.list_credentials(
+        task_id=args.task_id,
+        status=status_filter,
+    )
+
+    if not credentials:
+        print("No credentials found matching filters.")
+        return 0
+
+    print(f"Found {len(credentials)} credential(s):\n")
+    for cred in credentials:
+        print(f"ID:      {cred.credential_id}")
+        print(f"Task:    {cred.task_id}")
+        print(f"Tool:    {cred.tool_name}")
+        print(f"Status:  {cred.status.value}")
+        print(f"Minted:  {cred.minted_at}")
+        print(f"Expires: {cred.expires_at}")
+        if cred.revoked_at:
+            print(f"Revoked: {cred.revoked_at}")
+        print(f"Fingerprint: {cred.fingerprint}")
+        print()
+
+    return 0
+
+
+def cmd_secrets_status(args: argparse.Namespace) -> int:
+    """Show status of a specific credential."""
+    state_dir = Path(args.state_dir) / "secrets"
+    backend = EnvFileBackend(state_dir)
+
+    credential = backend.get_credential(args.credential_id)
+    if not credential:
+        print(f"Credential {args.credential_id} not found", file=sys.stderr)
+        return 1
+
+    print(json.dumps(credential.model_dump(mode="json"), indent=2))
+    return 0
+
+
+def cmd_secrets_revoke(args: argparse.Namespace) -> int:
+    """Revoke a credential before its natural expiry."""
+    state_dir = Path(args.state_dir) / "secrets"
+    backend = EnvFileBackend(state_dir)
+
+    if backend.revoke(args.credential_id):
+        print(f"✓ Revoked credential {args.credential_id}")
+        return 0
+    else:
+        print(f"✗ Could not revoke credential {args.credential_id}", file=sys.stderr)
+        return 1
+
+
+def cmd_secrets_cleanup(args: argparse.Namespace) -> int:
+    """Clean up expired credentials."""
+    state_dir = Path(args.state_dir) / "secrets"
+    backend = EnvFileBackend(state_dir)
+
+    count = backend.cleanup_expired()
+    print(f"Cleaned up {count} expired credential(s)")
+    return 0
+
+
 def cmd_evals_replay(args: argparse.Namespace) -> int:
     golden_dir = Path(args.golden_dir)
     workspace_root = Path(args.workspace_root)
@@ -215,6 +328,92 @@ def cmd_evals_replay(args: argparse.Namespace) -> int:
     return 0 if failed == 0 else 1
 
 
+# --- Control commands -------------------------------------------------------
+
+
+def cmd_control_pause(args: argparse.Namespace) -> int:
+    """Pause the factory (global or per-tenant)."""
+    store = FileKillSwitchStore(Path(args.state_dir) / "kill_switch")
+    switch = KillSwitch(store)
+
+    tenant = args.tenant if args.tenant != "global" else None
+    status = switch.pause(tenant_id=tenant, reason=args.reason, paused_by=args.user or "cli-user")
+
+    scope = f"tenant {tenant}" if tenant else "global"
+    print(f"✓ Paused {scope}")
+    print(f"  Reason: {status.reason}")
+    print(f"  By: {status.paused_by}")
+    print(f"  At: {status.paused_at}")
+    return 0
+
+
+def cmd_control_resume(args: argparse.Namespace) -> int:
+    """Resume the factory (global or per-tenant)."""
+    store = FileKillSwitchStore(Path(args.state_dir) / "kill_switch")
+    switch = KillSwitch(store)
+
+    tenant = args.tenant if args.tenant != "global" else None
+    switch.resume(tenant_id=tenant)
+
+    scope = f"tenant {tenant}" if tenant else "global"
+    print(f"✓ Resumed {scope}")
+    return 0
+
+
+def cmd_control_status(args: argparse.Namespace) -> int:
+    """Show kill switch status."""
+    store = FileKillSwitchStore(Path(args.state_dir) / "kill_switch")
+    switch = KillSwitch(store)
+
+    if args.tenant and args.tenant != "global":
+        status = switch.status(tenant_id=args.tenant)
+        statuses = {args.tenant: status}
+    else:
+        statuses = switch.list_all()
+
+    for name, status in statuses.items():
+        print(f"\n{'=' * 70}")
+        print(f"Kill Switch: {name}")
+        print(f"{'=' * 70}")
+        print(f"State: {status.state.value}")
+        if status.is_paused():
+            print(f"Paused at: {status.paused_at}")
+            print(f"Paused by: {status.paused_by}")
+            print(f"Reason: {status.reason}")
+
+    return 0
+
+
+def cmd_cost_report(args: argparse.Namespace) -> int:
+    """Generate cost report."""
+    ledger = FileBudgetLedger(Path(args.state_dir) / "budgets")
+    dashboard = CostDashboard(ledger)
+
+    period = args.period if hasattr(args, "period") and args.period else None
+
+    if args.tenant:
+        summary = dashboard.get_tenant_summary(args.tenant, period)
+        print(dashboard.format_summary(summary))
+    else:
+        dashboard.print_report(period)
+
+    return 0
+
+
+def cmd_cost_export(args: argparse.Namespace) -> int:
+    """Export cost metrics to JSONL."""
+    ledger = FileBudgetLedger(Path(args.state_dir) / "budgets")
+    dashboard = CostDashboard(ledger)
+
+    period = args.period if args.period else None
+    output = Path(args.output)
+
+    count = dashboard.export_metrics_jsonl(output, period)
+    print(f"✓ Exported {count} cost records to {output}")
+
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="factory", description="Software factory harness CLI")
     p.add_argument("--agents", default=str(REPO_ROOT / "agents"), help="agent definitions dir")
@@ -257,6 +456,46 @@ def build_parser() -> argparse.ArgumentParser:
     approve_deny.add_argument("--state-dir", default=".factory-runs", help="state directory")
     approve_deny.set_defaults(func=cmd_approve_deny)
 
+    # Secrets management commands
+    secrets = sub.add_parser("secrets", help="manage task-scoped credentials")
+    secrets_sub = secrets.add_subparsers(dest="secrets_action", required=True)
+
+    secrets_mint = secrets_sub.add_parser("mint", help="mint a new credential")
+    secrets_mint.add_argument("--task-id", required=True, help="task ID")
+    secrets_mint.add_argument("--work-order-id", required=True, help="work order ID")
+    secrets_mint.add_argument("--repo-url", required=True, help="repository URL")
+    secrets_mint.add_argument("--branch", help="branch restriction")
+    secrets_mint.add_argument("--tool-name", required=True, help="tool name (e.g. gh, git)")
+    secrets_mint.add_argument("--scopes", nargs="*", help="required scopes")
+    secrets_mint.add_argument(
+        "--ttl", type=int, default=3600, help="TTL in seconds (default: 3600)"
+    )
+    secrets_mint.add_argument("--reason", help="reason for minting")
+    secrets_mint.add_argument("--state-dir", default=".factory-runs", help="state directory")
+    secrets_mint.set_defaults(func=cmd_secrets_mint)
+
+    secrets_list = secrets_sub.add_parser("list", help="list credentials")
+    secrets_list.add_argument("--task-id", help="filter by task ID")
+    secrets_list.add_argument(
+        "--status", choices=[s.value for s in SecretStatus], help="filter by status"
+    )
+    secrets_list.add_argument("--state-dir", default=".factory-runs", help="state directory")
+    secrets_list.set_defaults(func=cmd_secrets_list)
+
+    secrets_status = secrets_sub.add_parser("status", help="show credential status")
+    secrets_status.add_argument("credential_id", help="credential ID")
+    secrets_status.add_argument("--state-dir", default=".factory-runs", help="state directory")
+    secrets_status.set_defaults(func=cmd_secrets_status)
+
+    secrets_revoke = secrets_sub.add_parser("revoke", help="revoke a credential")
+    secrets_revoke.add_argument("credential_id", help="credential ID")
+    secrets_revoke.add_argument("--state-dir", default=".factory-runs", help="state directory")
+    secrets_revoke.set_defaults(func=cmd_secrets_revoke)
+
+    secrets_cleanup = secrets_sub.add_parser("cleanup", help="clean up expired credentials")
+    secrets_cleanup.add_argument("--state-dir", default=".factory-runs", help="state directory")
+    secrets_cleanup.set_defaults(func=cmd_secrets_cleanup)
+
     for name, func, help_ in (
         ("run", cmd_run, "run one task with its agent"),
         ("answer", cmd_answer, "answer an escalation and resume the task"),
@@ -291,6 +530,51 @@ def build_parser() -> argparse.ArgumentParser:
     )
     e.add_argument("--json", help="write detailed results to JSON file")
     e.set_defaults(func=cmd_evals_replay)
+
+    # Control commands
+    control = sub.add_parser("control", help="factory control operations")
+    control_sub = control.add_subparsers(dest="control_action", required=True)
+
+    pause = control_sub.add_parser("pause", help="pause the factory")
+    pause.add_argument(
+        "--tenant",
+        default="global",
+        help="tenant to pause, or 'global' for factory-wide (default: global)",
+    )
+    pause.add_argument("--reason", required=True, help="reason for pause")
+    pause.add_argument("--user", help="operator name (defaults to cli-user)")
+    pause.add_argument("--state-dir", default=".factory-runs", help="state directory")
+    pause.set_defaults(func=cmd_control_pause)
+
+    resume = control_sub.add_parser("resume", help="resume the factory")
+    resume.add_argument(
+        "--tenant",
+        default="global",
+        help="tenant to resume, or 'global' for factory-wide (default: global)",
+    )
+    resume.add_argument("--state-dir", default=".factory-runs", help="state directory")
+    resume.set_defaults(func=cmd_control_resume)
+
+    status = control_sub.add_parser("status", help="show kill switch status")
+    status.add_argument("--tenant", help="specific tenant to check, or omit for all")
+    status.add_argument("--state-dir", default=".factory-runs", help="state directory")
+    status.set_defaults(func=cmd_control_status)
+
+    # Cost dashboard commands
+    cost = sub.add_parser("cost", help="cost dashboard and reporting")
+    cost_sub = cost.add_subparsers(dest="cost_action", required=True)
+
+    report = cost_sub.add_parser("report", help="show cost report")
+    report.add_argument("--tenant", help="specific tenant (default: all)")
+    report.add_argument("--period", help="period (YYYY-MM or YYYY-MM-DD, default: current month)")
+    report.add_argument("--state-dir", default=".factory-runs", help="state directory")
+    report.set_defaults(func=cmd_cost_report)
+
+    export = cost_sub.add_parser("export", help="export metrics to JSONL")
+    export.add_argument("--output", required=True, help="output JSONL file path")
+    export.add_argument("--period", help="period (YYYY-MM or YYYY-MM-DD, default: current month)")
+    export.add_argument("--state-dir", default=".factory-runs", help="state directory")
+    export.set_defaults(func=cmd_cost_export)
 
     return p
 

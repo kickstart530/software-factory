@@ -44,5 +44,6 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 testpaths = ["tests"]
 markers = [
     "integration: marks tests as integration tests (require real cluster)",
+    "live: marks tests as live tests requiring ANTHROPIC_API_KEY (deselected by default)",
 ]
-addopts = "-m 'not integration'"
+addopts = "-m 'not integration and not live'"

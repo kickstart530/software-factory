@@ -216,6 +216,19 @@
     "status": {
       "$ref": "#/$defs/TaskStatus",
       "default": "pending"
+    },
+    "tenant_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Inherited from WorkOrder; used for budget/policy isolation.",
+      "title": "Tenant Id"
     }
   },
   "required": [

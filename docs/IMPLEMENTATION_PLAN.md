@@ -16,10 +16,10 @@ harness is built first and every agent is built on it.
 
 | Phase | State | What exists |
 |---|---|---|
-| 0. Foundations | **Partial** | ADR-0001..0008 in [`docs/adr/`](adr/); core contracts in `factory/schemas.py`, exported to `schemas/`; CI workflow. Repository foundations are complete. Cloud IaC and hello-world sandbox environment remain open. |
+| 0. Foundations | **Complete** | ADR-0001..0009 in [`docs/adr/`](adr/); core contracts in `factory/schemas.py`, exported to `schemas/`; CI workflow. Cloud IaC: Terraform modules for AWS (EKS, RDS, S3) in `infra/terraform/`, local kind environment in `infra/local/`. Hello-world sandbox with OpenTelemetry tracing. Ops documentation in [`docs/ops/`](ops/). |
 | 1. Harness MVP | **Complete** | `factory/harness/`: agent loop, tool registry and sandbox tools, policy, hooks, gates, budgets, checkpoints/resume, escalation, telemetry (JSONL + OpenTelemetry exporter), model client. `evals/`: golden task set (5 tasks), replay runner, CLI integration. 50+ tests on a scripted model. |
-| 2a. Temporal Supervisor + GitHub App pilot | **In progress** | In-process Supervisor (`factory/orchestrator.py`) for local testing. Temporal workflow/activities implementation in progress. Agent definitions for planner, implementer, reviewer and integrator. Still to do: complete Temporal integration, GitHub App for one pilot repo. |
-| 2b. Policy & Approvals | **In progress** | OPA-compatible policy engine (`factory/harness/policy_engine.py`), human approval service (`factory/harness/approvals.py`) with CLI interface (CLI-first per ADR-0009, no MCP). |
+| 2a. Temporal Supervisor + GitHub App pilot | **Complete** | In-process Supervisor (`factory/orchestrator.py`) for local testing. Temporal workflow/activities in `factory/temporal_supervisor.py`. Temporal cluster infrastructure in `infra/temporal/`. Sandbox pod spawner with credential isolation in `factory/sandbox/`. GitHub App webhook receiver (`github_app/`) integrated with Temporal workflow starts. Agent definitions for planner, implementer, reviewer and integrator in `agents/`. End-to-end integration operational; production pipeline ready for pilot repository deployment. |
+| 2b. Policy & Approvals | **Complete** | OPA-compatible policy engine (`factory/harness/policy_engine.py`), human approval service (`factory/harness/approvals.py`) with CLI interface (`factory approve` subcommands). Risk-tier computation for path-based and change-based scoring. CLI-first per ADR-0009 (MCP deferred). Integration guide at [`docs/phase2b-integration-guide.md`](phase2b-integration-guide.md). Slack UI for approvals deferred to Phase 4. |
 | 3. Hardening | **Complete** | Security Reviewer + Test Engineer agents, injection + adversarial evals suite, Secrets Broker integration, multi-tenancy support + budget ledger, cost dashboards, kill switch implementation, spot instance + pre-emption handling. PRs #15–#20 merged to main. |
 | 4. Full lifecycle | **In progress** | Spec, Architect, Release, SRE and Docs agent scaffolds; memory "lessons" promotion workflow design. Canary deployment + auto-rollback mechanisms under development. |
 
@@ -350,13 +350,22 @@ TypeScript only for the approval UI.
 
 ## 13. Immediate next steps
 
-**Phase 1 (Complete)**: ADR-0001..0008, core schemas, harness MVP core, OpenTelemetry exporter, golden task set (5 tasks) + replay runner with CLI integration. See [`docs/EVALS.md`](EVALS.md) for eval documentation.
+**Phases 0–2b: Complete**
 
-**Phase 2 (in progress)**: Temporal workflows/activities integration, GitHub App for pilot repository, OPA-compatible policy engine, human approval service with CLI interface.
+- **Phase 0**: Infrastructure foundations, cloud IaC (AWS Terraform + local kind), hello-world sandbox, OpenTelemetry pipeline, ops documentation
+- **Phase 1**: Agent harness MVP with loop, tools, policy, gates, budgets, checkpoints, telemetry, evals (5 golden tasks + replay runner)
+- **Phase 2a**: Temporal cluster deployment, sandbox pod spawner with credential isolation, GitHub App webhook receiver, Temporal workflow orchestration, end-to-end Work Order → TaskDAG → execution pipeline
+- **Phase 2b**: OPA-compatible policy engine, human approval service with CLI interface, risk-tier computation (CLI-first per ADR-0009; Slack UI deferred)
 
-**Phase 3 (Complete)**: Security Reviewer + Test Engineer agents deployed. Injection and adversarial evals suite operational. Secrets Broker integrated, multi-tenancy support + budget ledger live, cost dashboards available, kill switch verified, spot instance + pre-emption handling tested. PRs #15–#20 merged to main.
+See [`docs/GETTING_STARTED.md`](GETTING_STARTED.md) for setup and deployment guides.
 
-**Phase 4 (in progress)**:
+**Phase 3: Hardening (Complete)**
+
+Security Reviewer + Test Engineer agents deployed. Injection and adversarial evals suite operational. Secrets Broker integrated, multi-tenancy support + budget ledger live, cost dashboards available, kill switch verified, spot instance + pre-emption handling tested. PRs #15–#20 merged to main.
+
+**Phase 4: Full lifecycle (In Progress)**
+
+Current focus areas:
 
 1. **Agent scaffold completion**: Spec, Architect, Release, SRE and Docs agents under development; initial implementations being tested against pilot work orders.
 2. **Memory lessons workflow**: promotion pipeline design complete; building review + eval gates to prevent bad lessons from reinforcing mistakes.

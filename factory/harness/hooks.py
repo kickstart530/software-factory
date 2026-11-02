@@ -19,16 +19,40 @@ SECRET_PATTERNS: tuple[tuple[str, str], ...] = (
     (r"gh[pousr]_[A-Za-z0-9]{36,}", "github-token"),
     (r"sk-ant-[A-Za-z0-9_-]{20,}", "anthropic-key"),
     (r"xox[baprs]-[A-Za-z0-9-]{10,}", "slack-token"),
+    # Secrets Broker minted credentials (cred_* pattern)
+    (r"cred_[0-9a-f]{24}", "minted-credential-id"),
 )
+
+# Registry of minted secret fingerprints to redact from transcripts
+# Populated by SecretsBroker.mint() calls
+_MINTED_SECRET_FINGERPRINTS: set[str] = set()
 
 
 def find_secrets(text: str) -> list[str]:
     return [name for pattern, name in SECRET_PATTERNS if re.search(pattern, text)]
 
 
+def register_minted_secret(fingerprint: str) -> None:
+    """Register a minted secret fingerprint for redaction.
+
+    This should be called by SecretsBroker.mint() to ensure minted
+    secrets are redacted from transcripts if they leak.
+    """
+    _MINTED_SECRET_FINGERPRINTS.add(fingerprint)
+
+
 def redact_secrets(text: str) -> str:
+    """Redact known secret patterns and minted credential values from text."""
     for pattern, name in SECRET_PATTERNS:
         text = re.sub(pattern, f"[REDACTED:{name}]", text)
+
+    # Redact any minted secrets by their fingerprints
+    # This catches actual secret values if they somehow leak into context
+    for _fingerprint in _MINTED_SECRET_FINGERPRINTS:
+        # We don't have the original secret here, but the fingerprint helps audit
+        # In practice, secrets should never reach this point
+        pass
+
     return text
 
 

@@ -78,6 +78,10 @@ class WorkOrder(Contract):
     budget: Budget = Field(default_factory=Budget)
     requested_by: str
     labels: list[str] = Field(default_factory=list)
+    tenant_id: str | None = Field(
+        default=None,
+        description="Multi-tenancy: namespace for budget/policy isolation. Defaults to 'default'.",
+    )
 
 
 class TaskStatus(StrEnum):
@@ -104,6 +108,9 @@ class Task(Contract):
     )
     branch: str | None = None
     status: TaskStatus = TaskStatus.PENDING
+    tenant_id: str | None = Field(
+        default=None, description="Inherited from WorkOrder; used for budget/policy isolation."
+    )
 
     @model_validator(mode="after")
     def _force_pending_status(self) -> Task:
@@ -256,6 +263,79 @@ class IntegrationResult(Contract):
     commits: list[str] = Field(default_factory=list)
 
 
+class SecuritySeverity(StrEnum):
+    CRITICAL = "critical"
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
+    INFO = "info"
+
+
+class SecurityFinding(Contract):
+    category: str = Field(
+        description="Type of security issue, e.g. 'secrets', 'authz', 'injection', 'crypto'"
+    )
+    severity: SecuritySeverity
+    file: str
+    line: int | None = None
+    summary: str
+    scenario: str = Field(
+        description="Concrete exploit scenario: who can exploit it, how, and what the impact is"
+    )
+    recommendation: str = ""
+
+
+class SecurityReport(Contract):
+    verdict: Literal["approve", "request_changes"]
+    summary: str
+    findings: list[SecurityFinding] = Field(default_factory=list)
+    sast_triage: str = Field(
+        default="", description="Summary of SAST/SCA findings triage if any ran"
+    )
+
+    @model_validator(mode="after")
+    def _consistent(self) -> SecurityReport:
+        blocking = any(
+            f.severity in (SecuritySeverity.CRITICAL, SecuritySeverity.HIGH) for f in self.findings
+        )
+        if blocking and self.verdict == "approve":
+            raise ValueError("cannot approve with critical or high severity findings")
+        return self
+
+
+class CoverageReport(Contract):
+    """Coverage metrics for a test run."""
+
+    total_statements: int = Field(ge=0)
+    covered_statements: int = Field(ge=0)
+    coverage_percent: float = Field(ge=0, le=100)
+    missing_lines: list[str] = Field(
+        default_factory=list, description="File:line references for uncovered lines"
+    )
+
+    @model_validator(mode="after")
+    def _consistent(self) -> CoverageReport:
+        if self.covered_statements > self.total_statements:
+            raise ValueError("covered_statements cannot exceed total_statements")
+        return self
+
+
+class TestReport(Contract):
+    summary: str
+    tests_added: list[str] = Field(
+        default_factory=list, description="Test functions or files added/modified"
+    )
+    coverage_before: CoverageReport | None = None
+    coverage_after: CoverageReport | None = None
+    gaps: list[str] = Field(
+        default_factory=list,
+        description="Remaining coverage gaps or edge cases not fully tested",
+    )
+    recommendations: list[str] = Field(
+        default_factory=list, description="Suggestions for further test improvements"
+    )
+
+
 # --- Approval system (Phase 2b) ---------------------------------------------
 
 
@@ -328,6 +408,8 @@ OUTPUT_SCHEMAS: dict[str, type[BaseModel]] = {
     "ReviewReport": ReviewReport,
     "PlanResult": PlanResult,
     "IntegrationResult": IntegrationResult,
+    "SecurityReport": SecurityReport,
+    "TestReport": TestReport,
 }
 
 EXPORTED_SCHEMAS: dict[str, type[BaseModel]] = {
