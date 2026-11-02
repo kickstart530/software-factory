@@ -17,7 +17,8 @@ from factory.harness import (
     ModelConfig,
     ToolContext,
 )
-from factory.schemas import EXPORTED_SCHEMAS, RiskTier, Task
+from factory.harness.approvals import FileBasedApprovalService
+from factory.schemas import EXPORTED_SCHEMAS, ApprovalDecision, RiskTier, Task
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -71,6 +72,95 @@ def cmd_answer(args: argparse.Namespace) -> int:
     return 0 if result.status == "succeeded" else 1
 
 
+def cmd_approve_list(args: argparse.Namespace) -> int:
+    """List pending approval requests."""
+    service = FileBasedApprovalService(Path(args.state_dir) / "approvals")
+    pending = service.list_pending()
+    if not pending:
+        print("No pending approval requests.")
+        return 0
+
+    for req in pending:
+        print(f"\n{'=' * 80}")
+        print(f"ID:           {req.id}")
+        print(f"Task:         {req.task_id}")
+        print(f"Work Order:   {req.work_order_id}")
+        print(f"Agent:        {req.agent}")
+        print(f"Tool:         {req.tool_name}")
+        print(f"Requested:    {req.requested_at}")
+        print(f"Expires:      {req.expires_at}")
+        print(f"\nReason:       {req.reason}")
+        if req.risk_factors:
+            print(f"Risk factors: {', '.join(req.risk_factors)}")
+        print("\nTool args:")
+        print(json.dumps(req.tool_args, indent=2))
+
+    print(f"\n{'=' * 80}")
+    print(f"\n{len(pending)} pending request(s)")
+    print("\nTo review: factory approve show <request-id>")
+    print("To approve: factory approve accept <request-id> --reason '...'")
+    print("To deny: factory approve deny <request-id> --reason '...'")
+    return 0
+
+
+def cmd_approve_show(args: argparse.Namespace) -> int:
+    """Show a specific approval request."""
+    service = FileBasedApprovalService(Path(args.state_dir) / "approvals")
+    req = service.get_request(args.request_id)
+    if not req:
+        print(f"Request {args.request_id} not found")
+        return 1
+
+    print(json.dumps(req.model_dump(), indent=2))
+    return 0
+
+
+def cmd_approve_accept(args: argparse.Namespace) -> int:
+    """Approve a request."""
+    service = FileBasedApprovalService(Path(args.state_dir) / "approvals")
+    req = service.get_request(args.request_id)
+    if not req:
+        print(f"Request {args.request_id} not found")
+        return 1
+
+    if req.status != "pending":
+        print(f"Request is {req.status}, cannot approve")
+        return 1
+
+    decision = ApprovalDecision(
+        request_id=args.request_id,
+        approved=True,
+        reason=args.reason,
+        decided_by=args.user or "cli-user",
+    )
+    service.record_decision(decision)
+    print(f"✓ Approved request {args.request_id}")
+    return 0
+
+
+def cmd_approve_deny(args: argparse.Namespace) -> int:
+    """Deny a request."""
+    service = FileBasedApprovalService(Path(args.state_dir) / "approvals")
+    req = service.get_request(args.request_id)
+    if not req:
+        print(f"Request {args.request_id} not found")
+        return 1
+
+    if req.status != "pending":
+        print(f"Request is {req.status}, cannot deny")
+        return 1
+
+    decision = ApprovalDecision(
+        request_id=args.request_id,
+        approved=False,
+        reason=args.reason,
+        decided_by=args.user or "cli-user",
+    )
+    service.record_decision(decision)
+    print(f"✗ Denied request {args.request_id}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="factory", description="Software factory harness CLI")
     p.add_argument("--agents", default=str(REPO_ROOT / "agents"), help="agent definitions dir")
@@ -85,6 +175,33 @@ def build_parser() -> argparse.ArgumentParser:
     a = sub.add_parser("agents", help="validate agent definitions")
     a.add_argument("action", choices=["validate"])
     a.set_defaults(func=cmd_agents_validate)
+
+    # Approval management commands
+    approve = sub.add_parser("approve", help="manage approval requests")
+    approve_sub = approve.add_subparsers(dest="approve_action", required=True)
+
+    approve_list = approve_sub.add_parser("list", help="list pending approval requests")
+    approve_list.add_argument("--state-dir", default=".factory-runs", help="state directory")
+    approve_list.set_defaults(func=cmd_approve_list)
+
+    approve_show = approve_sub.add_parser("show", help="show a specific approval request")
+    approve_show.add_argument("request_id", help="approval request ID")
+    approve_show.add_argument("--state-dir", default=".factory-runs", help="state directory")
+    approve_show.set_defaults(func=cmd_approve_show)
+
+    approve_accept = approve_sub.add_parser("accept", help="approve a request")
+    approve_accept.add_argument("request_id", help="approval request ID")
+    approve_accept.add_argument("--reason", required=True, help="reason for approval")
+    approve_accept.add_argument("--user", help="user name (defaults to cli-user)")
+    approve_accept.add_argument("--state-dir", default=".factory-runs", help="state directory")
+    approve_accept.set_defaults(func=cmd_approve_accept)
+
+    approve_deny = approve_sub.add_parser("deny", help="deny a request")
+    approve_deny.add_argument("request_id", help="approval request ID")
+    approve_deny.add_argument("--reason", required=True, help="reason for denial")
+    approve_deny.add_argument("--user", help="user name (defaults to cli-user)")
+    approve_deny.add_argument("--state-dir", default=".factory-runs", help="state directory")
+    approve_deny.set_defaults(func=cmd_approve_deny)
 
     for name, func, help_ in (
         ("run", cmd_run, "run one task with its agent"),

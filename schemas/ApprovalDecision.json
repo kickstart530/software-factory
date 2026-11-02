@@ -1,0 +1,35 @@
+{
+  "additionalProperties": false,
+  "description": "A human's decision on an approval request.",
+  "properties": {
+    "request_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9._-]+$",
+      "title": "Request Id",
+      "type": "string"
+    },
+    "approved": {
+      "title": "Approved",
+      "type": "boolean"
+    },
+    "reason": {
+      "minLength": 1,
+      "title": "Reason",
+      "type": "string"
+    },
+    "decided_by": {
+      "minLength": 1,
+      "title": "Decided By",
+      "type": "string"
+    }
+  },
+  "required": [
+    "request_id",
+    "approved",
+    "reason",
+    "decided_by"
+  ],
+  "title": "ApprovalDecision",
+  "type": "object"
+}

@@ -238,6 +238,73 @@ class IntegrationResult(Contract):
     commits: list[str] = Field(default_factory=list)
 
 
+# --- Approval system (Phase 2b) ---------------------------------------------
+
+
+class ApprovalStatus(StrEnum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    DENIED = "denied"
+    EXPIRED = "expired"
+
+
+class ApprovalRequest(Contract):
+    """A request for human approval of a high-risk operation."""
+
+    id: Id
+    task_id: Id
+    work_order_id: Id
+    agent: str
+    tool_name: str
+    tool_args: dict = Field(default_factory=dict)
+    reason: str = Field(min_length=1, description="Why this operation needs approval")
+    risk_factors: list[str] = Field(default_factory=list)
+    status: ApprovalStatus = ApprovalStatus.PENDING
+    requested_at: str = ""  # ISO timestamp, filled by approval service
+    decided_at: str | None = None
+    decided_by: str | None = None
+    decision_reason: str | None = None
+    expires_at: str | None = None
+
+
+class ApprovalDecision(Contract):
+    """A human's decision on an approval request."""
+
+    request_id: Id
+    approved: bool
+    reason: str = Field(min_length=1)
+    decided_by: str = Field(min_length=1)
+
+
+# --- Policy engine (Phase 2b) -----------------------------------------------
+
+
+class PolicyEvaluationInput(Contract):
+    """Input bundle for external policy evaluation (e.g. OPA)."""
+
+    agent: str
+    tool_name: str
+    tool_args: dict
+    risk_tier: RiskTier
+    work_order_id: Id
+    task_id: Id
+    tainted: bool
+    rel_path: str | None = None
+    protected_paths: dict[str, list[str]] = Field(
+        default_factory=dict, description="Map of risk tier -> path patterns"
+    )
+
+
+class PolicyEvaluationResult(Contract):
+    """Result from external policy evaluation."""
+
+    allowed: bool
+    reason: str = ""
+    rule: str = ""
+    requires_approval: bool = False
+    approval_reason: str = ""
+
+
 OUTPUT_SCHEMAS: dict[str, type[BaseModel]] = {
     "ImplementationResult": ImplementationResult,
     "ReviewReport": ReviewReport,
@@ -250,5 +317,9 @@ EXPORTED_SCHEMAS: dict[str, type[BaseModel]] = {
     "Task": Task,
     "TaskDAG": TaskDAG,
     "TaskResult": TaskResult,
+    "ApprovalRequest": ApprovalRequest,
+    "ApprovalDecision": ApprovalDecision,
+    "PolicyEvaluationInput": PolicyEvaluationInput,
+    "PolicyEvaluationResult": PolicyEvaluationResult,
     **OUTPUT_SCHEMAS,
 }
