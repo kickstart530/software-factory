@@ -1,0 +1,35 @@
+{
+  "additionalProperties": false,
+  "description": "Result from external policy evaluation.",
+  "properties": {
+    "allowed": {
+      "title": "Allowed",
+      "type": "boolean"
+    },
+    "reason": {
+      "default": "",
+      "title": "Reason",
+      "type": "string"
+    },
+    "rule": {
+      "default": "",
+      "title": "Rule",
+      "type": "string"
+    },
+    "requires_approval": {
+      "default": false,
+      "title": "Requires Approval",
+      "type": "boolean"
+    },
+    "approval_reason": {
+      "default": "",
+      "title": "Approval Reason",
+      "type": "string"
+    }
+  },
+  "required": [
+    "allowed"
+  ],
+  "title": "PolicyEvaluationResult",
+  "type": "object"
+}

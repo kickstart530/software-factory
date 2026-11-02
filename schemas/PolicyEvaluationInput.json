@@ -1,0 +1,85 @@
+{
+  "$defs": {
+    "RiskTier": {
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "title": "RiskTier",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Input bundle for external policy evaluation (e.g. OPA).",
+  "properties": {
+    "agent": {
+      "title": "Agent",
+      "type": "string"
+    },
+    "tool_name": {
+      "title": "Tool Name",
+      "type": "string"
+    },
+    "tool_args": {
+      "additionalProperties": true,
+      "title": "Tool Args",
+      "type": "object"
+    },
+    "risk_tier": {
+      "$ref": "#/$defs/RiskTier"
+    },
+    "work_order_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9._-]+$",
+      "title": "Work Order Id",
+      "type": "string"
+    },
+    "task_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9._-]+$",
+      "title": "Task Id",
+      "type": "string"
+    },
+    "tainted": {
+      "title": "Tainted",
+      "type": "boolean"
+    },
+    "rel_path": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Rel Path"
+    },
+    "protected_paths": {
+      "additionalProperties": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "description": "Map of risk tier -> path patterns",
+      "title": "Protected Paths",
+      "type": "object"
+    }
+  },
+  "required": [
+    "agent",
+    "tool_name",
+    "tool_args",
+    "risk_tier",
+    "work_order_id",
+    "task_id",
+    "tainted"
+  ],
+  "title": "PolicyEvaluationInput",
+  "type": "object"
+}
