@@ -10,6 +10,9 @@ dependencies = [
     "pydantic>=2.7",
     "pyyaml>=6.0",
     "temporalio>=1.7",
+    "flask>=3.0",
+    "pyjwt[crypto]>=2.8",
+    "requests>=2.31",
 ]
 
 [project.optional-dependencies]
