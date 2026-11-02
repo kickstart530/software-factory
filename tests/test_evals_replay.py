@@ -14,7 +14,7 @@ def golden_dir(tmp_path):
     """Create a temporary directory with golden tasks."""
     gd = tmp_path / "golden"
     gd.mkdir()
-    
+
     task_data = {
         "description": "Simple test task",
         "task": {
@@ -55,7 +55,7 @@ def golden_dir(tmp_path):
             }
         ],
     }
-    
+
     (gd / "test_task.json").write_text(json.dumps(task_data, indent=2))
     return gd
 
@@ -81,12 +81,12 @@ def test_replay_runner_succeeds(tmp_path, golden_dir):
     """ReplayRunner runs a golden task and reports success."""
     workspace_root = tmp_path / "workspaces"
     artifacts_root = tmp_path / "artifacts"
-    
+
     runner = ReplayRunner(workspace_root, artifacts_root)
     tasks = load_golden_tasks(golden_dir)
-    
+
     result = runner.run(tasks[0])
-    
+
     assert result.task_id == "test_001"
     assert result.passed
     assert result.actual_status == TaskStatus.SUCCEEDED
@@ -97,12 +97,12 @@ def test_replay_runner_suite(tmp_path, golden_dir):
     """ReplayRunner.run_suite runs multiple tasks."""
     workspace_root = tmp_path / "workspaces"
     artifacts_root = tmp_path / "artifacts"
-    
+
     runner = ReplayRunner(workspace_root, artifacts_root)
     tasks = load_golden_tasks(golden_dir)
-    
+
     results = runner.run_suite(tasks)
-    
+
     assert len(results) == 1
     assert all(r.passed for r in results)
 
@@ -111,7 +111,7 @@ def test_replay_runner_detects_status_mismatch(tmp_path):
     """ReplayRunner detects when actual status doesn't match expected."""
     gd = tmp_path / "golden"
     gd.mkdir()
-    
+
     task_data = {
         "description": "Task that should fail but succeeds",
         "task": {
@@ -152,16 +152,16 @@ def test_replay_runner_detects_status_mismatch(tmp_path):
             }
         ],
     }
-    
+
     (gd / "mismatch.json").write_text(json.dumps(task_data))
-    
+
     workspace_root = tmp_path / "workspaces"
     artifacts_root = tmp_path / "artifacts"
     runner = ReplayRunner(workspace_root, artifacts_root)
-    
+
     tasks = load_golden_tasks(gd)
     result = runner.run(tasks[0])
-    
+
     assert not result.passed
     assert result.actual_status == TaskStatus.SUCCEEDED
     assert result.expected_status == TaskStatus.FAILED
@@ -171,19 +171,19 @@ def test_load_real_golden_tasks():
     """Load the actual golden tasks from evals/golden."""
     repo_root = Path(__file__).parent.parent
     golden_dir = repo_root / "evals" / "golden"
-    
+
     if not golden_dir.exists():
         pytest.skip("Golden tasks directory does not exist")
-    
+
     tasks = load_golden_tasks(golden_dir)
-    
+
     assert len(tasks) >= 5
-    
+
     task_ids = {t.task.id for t in tasks}
     assert "golden_001" in task_ids
     assert "golden_002" in task_ids
     assert "golden_003" in task_ids
-    
+
     statuses = {t.expected_status for t in tasks}
     assert TaskStatus.SUCCEEDED in statuses
     assert TaskStatus.FAILED in statuses or TaskStatus.ESCALATED in statuses

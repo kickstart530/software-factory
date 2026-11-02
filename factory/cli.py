@@ -160,26 +160,28 @@ def cmd_approve_deny(args: argparse.Namespace) -> int:
     service.record_decision(decision)
     print(f"✗ Denied request {args.request_id}")
     return 0
+
+
 def cmd_evals_replay(args: argparse.Namespace) -> int:
     golden_dir = Path(args.golden_dir)
     workspace_root = Path(args.workspace_root)
     artifacts_root = Path(args.artifacts_root)
-    
+
     tasks = load_golden_tasks(golden_dir)
     if not tasks:
         print(f"No golden tasks found in {golden_dir}", file=sys.stderr)
         return 1
-    
+
     runner = ReplayRunner(workspace_root, artifacts_root)
     results = runner.run_suite(tasks)
-    
+
     passed = sum(1 for r in results if r.passed)
     failed = sum(1 for r in results if not r.passed)
-    
-    print(f"\n{'='*70}")
+
+    print(f"\n{'=' * 70}")
     print(f"Replay Results: {passed}/{len(results)} passed")
-    print(f"{'='*70}\n")
-    
+    print(f"{'=' * 70}\n")
+
     for result in results:
         status_mark = "✓" if result.passed else "✗"
         print(f"{status_mark} {result.task_id}: {result.description}")
@@ -191,7 +193,7 @@ def cmd_evals_replay(args: argparse.Namespace) -> int:
         if result.gates_failed:
             print(f"  Gates failed: {', '.join(result.gates_failed)}")
         print()
-    
+
     if args.json:
         json_output = [
             {
@@ -209,7 +211,7 @@ def cmd_evals_replay(args: argparse.Namespace) -> int:
         ]
         Path(args.json).write_text(json.dumps(json_output, indent=2))
         print(f"Wrote detailed results to {args.json}")
-    
+
     return 0 if failed == 0 else 1
 
 
@@ -269,27 +271,27 @@ def build_parser() -> argparse.ArgumentParser:
         if name == "answer":
             r.add_argument("--answer", required=True)
         r.set_defaults(func=func)
-    
+
     e = sub.add_parser("evals", help="run evaluation suite")
     e.add_argument("action", choices=["replay"], help="replay golden tasks")
     e.add_argument(
-        "--golden-dir", 
+        "--golden-dir",
         default=str(REPO_ROOT / "evals" / "golden"),
-        help="directory with golden task JSON files"
+        help="directory with golden task JSON files",
     )
     e.add_argument(
         "--workspace-root",
         default=".factory-evals/workspaces",
-        help="root directory for test workspaces"
+        help="root directory for test workspaces",
     )
     e.add_argument(
         "--artifacts-root",
         default=".factory-evals/artifacts",
-        help="root directory for test artifacts"
+        help="root directory for test artifacts",
     )
     e.add_argument("--json", help="write detailed results to JSON file")
     e.set_defaults(func=cmd_evals_replay)
-    
+
     return p
 
 

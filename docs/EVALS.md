@@ -222,8 +222,7 @@ from factory.harness.telemetry import OtelTracer
 from pathlib import Path
 
 tracer = OtelTracer(
-    service_name="software-factory",
-    fallback_jsonl=Path(".factory-runs/traces/task.jsonl")
+    service_name="software-factory", fallback_jsonl=Path(".factory-runs/traces/task.jsonl")
 )
 ```
 
