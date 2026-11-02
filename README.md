@@ -5,9 +5,15 @@ deployed change. Every agent is a configuration of one shared **agent harness**:
 sandboxed tools, policy checks, verification gates, budgets, checkpoints and
 escalation to humans.
 
-- [Getting Started](docs/GETTING_STARTED.md): setup, CLI usage, work submission, and architecture overview
+- **[Getting Started](docs/GETTING_STARTED.md)**: Setup, what works locally vs what needs K8s/Temporal, CLI usage
 - [Implementation Plan](docs/IMPLEMENTATION_PLAN.md): architecture, harness, agent roster, roadmap, status
-- [Architecture Decision Records](docs/adr/README.md)
+- [Architecture Decision Records](docs/adr/README.md): key technical decisions and rationale
+
+**Integration & Deployment:**
+- [Temporal Integration](docs/TEMPORAL_INTEGRATION.md): durable workflow orchestration with Temporal
+- [GitHub App Setup](docs/GITHUB_APP_SETUP.md): webhook receiver for Work Order intake from issues
+- [Infrastructure](infra/README.md): Kubernetes deployment for Temporal cluster, workers, and sandboxes
+- [Operations Guide](docs/ops/TEMPORAL_OPERATIONS.md): production cluster monitoring and troubleshooting
 
 ## Quick start
 
