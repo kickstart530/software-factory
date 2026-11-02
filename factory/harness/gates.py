@@ -60,7 +60,7 @@ def secret_scan(workspace: Path) -> GateResult:
     """P0 fix: scan full branch diff vs base (main), not only dirty files."""
     start = time.monotonic()
     hits = []
-    
+
     # First, get the merge-base with main
     base_proc = subprocess.run(
         ["git", "merge-base", "HEAD", "origin/main"],
@@ -68,7 +68,7 @@ def secret_scan(workspace: Path) -> GateResult:
         capture_output=True,
         text=True,
     )
-    
+
     if base_proc.returncode == 0:
         base_ref = base_proc.stdout.strip()
         # Get diff of committed changes
@@ -78,7 +78,7 @@ def secret_scan(workspace: Path) -> GateResult:
             capture_output=True,
             text=True,
         )
-        
+
         if diff_proc.returncode == 0:
             # Scan committed changes
             for line in diff_proc.stdout.splitlines():
@@ -90,7 +90,7 @@ def secret_scan(workspace: Path) -> GateResult:
                             hits.append(f"{line}: {', '.join(found)}")
                     except (UnicodeDecodeError, OSError):
                         continue
-    
+
     # Also scan uncommitted changes (git status)
     for p in _changed_files(workspace):
         try:
@@ -100,13 +100,15 @@ def secret_scan(workspace: Path) -> GateResult:
                 hits.append(f"{rel} (uncommitted): {', '.join(found)}")
         except (UnicodeDecodeError, OSError):
             continue
-    
+
     return GateResult(
         name="secret_scan",
         passed=not hits,
         output_tail="\n".join(hits) or "no secrets found in branch diff or uncommitted changes",
         duration_s=time.monotonic() - start,
     )
+
+
 BUILTIN_GATES: dict[str, BuiltinGate] = {"secret_scan": secret_scan}
 
 

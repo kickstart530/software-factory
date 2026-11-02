@@ -47,11 +47,11 @@ class FileCheckpointStore:
 
     def _dir(self, task_id: str, work_order_id: str | None = None) -> Path:
         # P0 fix: key checkpoints by work_order_id + task_id to avoid collisions
-        if work_order_id:
-            d = self.root / work_order_id / task_id
-        else:
-            # Backward compat for load() with unknown WO
-            d = self.root / task_id
+        d = (
+            self.root / work_order_id / task_id
+            if work_order_id
+            else self.root / task_id  # Backward compat
+        )
         d.mkdir(parents=True, exist_ok=True)
         return d
 
@@ -71,7 +71,7 @@ class FileCheckpointStore:
             if latest.is_file():
                 path = self.root / work_order_id / task_id / f"{latest.read_text().strip()}.json"
                 return RunState.model_validate(json.loads(path.read_text()))
-        
+
         # Fallback to old path for backward compat
         latest = self.root / task_id / "LATEST"
         if not latest.is_file():

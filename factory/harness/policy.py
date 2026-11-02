@@ -82,7 +82,7 @@ class RulePolicy:
                 for pattern in patterns:
                     # For commands, extract key path fragments and check if they appear
                     # Strip regex anchors and special chars to get the core path
-                    core_path = re.sub(r'[\\^$().|]', '', pattern).strip('/')
+                    core_path = re.sub(r"[\\^$().|]", "", pattern).strip("/")
                     if core_path and core_path in cmd:
                         return PolicyDecision(
                             False,
