@@ -6,12 +6,17 @@ Run locally for testing with ngrok:
 Configure with environment variables:
     GITHUB_WEBHOOK_SECRET: Webhook secret from GitHub App settings
     TEMPORAL_HOST: Temporal server address (optional, defaults to localhost:7233)
+    TEMPORAL_NAMESPACE: Temporal namespace (optional, defaults to default)
+    TEMPORAL_TASK_QUEUE: Task queue name (optional, defaults to factory-tasks)
     PORT: Server port (optional, defaults to 8080)
 """
 
+import asyncio
 import logging
 import os
 import sys
+
+from temporalio.client import Client
 
 from github_app.receiver import create_webhook_app
 
@@ -24,6 +29,26 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+async def create_temporal_client() -> Client | None:
+    """Create Temporal client from environment configuration."""
+    temporal_host = os.getenv("TEMPORAL_HOST", "localhost:7233")
+    temporal_namespace = os.getenv("TEMPORAL_NAMESPACE", "default")
+
+    try:
+        logger.info(f"Connecting to Temporal at {temporal_host}, namespace {temporal_namespace}")
+        client = await Client.connect(temporal_host, namespace=temporal_namespace)
+
+        # Store task queue on client for webhook receiver to use
+        client._task_queue = os.getenv("TEMPORAL_TASK_QUEUE", "factory-tasks")
+
+        logger.info("Temporal client connected successfully")
+        return client
+    except Exception as e:
+        logger.error(f"Failed to connect to Temporal: {e}")
+        logger.warning("Webhook receiver will run in stub mode (logs only, no workflow starts)")
+        return None
+
+
 def main():
     """Start the webhook receiver server."""
     webhook_secret = os.getenv("GITHUB_WEBHOOK_SECRET")
@@ -33,20 +58,17 @@ def main():
         )
 
     port = int(os.getenv("PORT", "8080"))
-    temporal_host = os.getenv("TEMPORAL_HOST", "localhost:7233")
 
     logger.info(f"Starting GitHub App webhook receiver on port {port}")
-    logger.info(f"Temporal host: {temporal_host}")
     logger.info("Webhook endpoint: POST /webhooks/github")
     logger.info("Health check: GET /health")
 
-    # For Phase 2a, Temporal client factory is stubbed
-    # Integration with Temporal happens after sandbox/worker components are ready
+    # Create Temporal client
+    temporal_client = asyncio.run(create_temporal_client())
+
+    # Create client factory that returns the connected client
     def temporal_client_factory():
-        # TODO: Create and return Temporal client
-        # This will be implemented after Stream B/C complete sandbox/worker injection
-        logger.info("Temporal client factory called (stubbed for Phase 2a)")
-        return None
+        return temporal_client
 
     app = create_webhook_app(
         temporal_client_factory=temporal_client_factory,
