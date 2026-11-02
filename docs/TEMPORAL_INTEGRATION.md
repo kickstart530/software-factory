@@ -92,17 +92,19 @@ docker run --rm -d -p 7233:7233 -p 8233:8233 \
 from temporalio.client import Client
 from factory.temporal_supervisor import create_temporal_worker, TemporalConfig
 
+
 async def main():
     config = TemporalConfig(host="localhost:7233", namespace="default")
     client = await config.create_client()
-    
+
     # In production, runner would spawn sandboxes; for local dev, pass a test runner
     def my_runner(task):
         # ... your TaskRunner implementation
         pass
-    
+
     worker = await create_temporal_worker(client, "factory-tasks", my_runner)
     await worker.run()
+
 
 # Run with: python -m asyncio <module>
 ```
@@ -114,13 +116,14 @@ from temporalio.client import Client
 from factory.temporal_supervisor import execute_dag_via_temporal, TemporalConfig
 from factory.schemas import TaskDAG
 
+
 async def main():
     config = TemporalConfig(host="localhost:7233")
     client = await config.create_client()
-    
+
     # Your TaskDAG
     dag = TaskDAG(...)
-    
+
     # Execute and wait for results
     results = await execute_dag_via_temporal(client, dag)
     print(results)
