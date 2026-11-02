@@ -289,8 +289,7 @@ class SecurityReport(Contract):
     @model_validator(mode="after")
     def _consistent(self) -> SecurityReport:
         blocking = any(
-            f.severity in (SecuritySeverity.CRITICAL, SecuritySeverity.HIGH)
-            for f in self.findings
+            f.severity in (SecuritySeverity.CRITICAL, SecuritySeverity.HIGH) for f in self.findings
         )
         if blocking and self.verdict == "approve":
             raise ValueError("cannot approve with critical or high severity findings")
