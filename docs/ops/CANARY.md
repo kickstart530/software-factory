@@ -419,9 +419,9 @@ class LambdaBackend:
     def deploy_canary(self, version: str, traffic_percent: int) -> None:
         # Update Lambda alias with weighted routing
         lambda_client.update_alias(
-            FunctionName='myfunction',
-            Name='prod',
-            RoutingConfig={'AdditionalVersionWeights': {version: traffic_percent / 100}}
+            FunctionName="myfunction",
+            Name="prod",
+            RoutingConfig={"AdditionalVersionWeights": {version: traffic_percent / 100}},
         )
 ```
 

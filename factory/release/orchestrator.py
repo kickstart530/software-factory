@@ -211,9 +211,7 @@ class CanaryOrchestrator:
 
         return self._perform_rollback(run, RollbackReason.MANUAL, reason)
 
-    def run_full_canary(
-        self, plan: CanaryPlan, run: CanaryRun, blocking: bool = True
-    ) -> CanaryRun:
+    def run_full_canary(self, plan: CanaryPlan, run: CanaryRun, blocking: bool = True) -> CanaryRun:
         """Execute a complete canary deployment with all stages.
 
         Args:
@@ -248,9 +246,7 @@ class CanaryOrchestrator:
 
         return run
 
-    def _perform_rollback(
-        self, run: CanaryRun, reason: RollbackReason, details: str
-    ) -> CanaryRun:
+    def _perform_rollback(self, run: CanaryRun, reason: RollbackReason, details: str) -> CanaryRun:
         """Perform the actual rollback operation."""
         if not run.previous_version:
             run.mark_failed(f"rollback required but no previous version available: {details}")
@@ -323,6 +319,4 @@ class CanaryOrchestrator:
             except Exception:
                 continue
 
-        return sorted(
-            runs, key=lambda r: r.started_at or "", reverse=True
-        )
+        return sorted(runs, key=lambda r: r.started_at or "", reverse=True)

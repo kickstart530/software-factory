@@ -203,9 +203,7 @@ def test_cannot_rollback_without_previous_version(
         orchestrator.rollback(canary_run)
 
 
-def test_cannot_rollback_completed_run(
-    orchestrator: CanaryOrchestrator, canary_run: CanaryRun
-):
+def test_cannot_rollback_completed_run(orchestrator: CanaryOrchestrator, canary_run: CanaryRun):
     canary_run.status = CanaryStatus.COMPLETED
 
     with pytest.raises(ValueError, match="cannot rollback"):
