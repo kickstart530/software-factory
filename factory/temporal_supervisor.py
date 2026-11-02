@@ -11,7 +11,9 @@ local tests; this module is the production runtime.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
+from contextvars import ContextVar
 from datetime import timedelta
 from typing import Any
 
@@ -22,51 +24,68 @@ from temporalio.worker import Worker
 from factory.schemas import Task, TaskDAG, TaskResult, TaskStatus
 
 # Type alias for the task runner contract
-TaskRunner = Callable[[Task], TaskResult]
+# Can be sync or async; async runners receive heartbeat_callback kwarg
+TaskRunner = Callable[[Task], TaskResult] | Callable[[Task, Any], TaskResult]
+
+# Global registry for TaskRunner injection (populated by worker)
+_TASK_RUNNER_REGISTRY: ContextVar[TaskRunner | None] = ContextVar(
+    "_TASK_RUNNER_REGISTRY", default=None
+)
+
+
+def set_task_runner(runner: TaskRunner) -> None:
+    """Set the TaskRunner for the current worker context.
+
+    Must be called by the worker during initialization, before running activities.
+
+    Args:
+        runner: A callable that executes tasks (sync or async).
+                Async runners receive heartbeat_callback as a kwarg.
+    """
+    _TASK_RUNNER_REGISTRY.set(runner)
 
 
 # --- Activities ---
 
 
 @activity.defn(name="run_task")
-async def run_task_activity(
-    task_dict: dict[str, Any], runner_name: str = "default"
-) -> dict[str, Any]:
-    """Activity that executes one task via the configured TaskRunner.
+async def run_task_activity(task_dict: dict[str, Any]) -> dict[str, Any]:
+    """Activity that executes one task in an ephemeral sandbox pod.
 
     Args:
         task_dict: Task serialized as a dict (Pydantic model_dump)
-        runner_name: Identifies which TaskRunner to use (for extensibility)
 
     Returns:
         TaskResult serialized as a dict
 
-    The actual runner is injected via activity context (activity.info().activity_type).
-    For now we expect the worker to be configured with a runner; in production this
-    activity would look up the runner from a registry or spawn a sandbox.
+    This activity spawns an isolated sandbox pod with:
+    - Clean HOME directory (no host credentials)
+    - gVisor runtime isolation
+    - Egress network restrictions per policy
+    - Explicit credential injection (no ~/.ssh, ~/.netrc mounts)
+    - Resource quotas
+
+    The TaskRunner (sandbox spawner) is injected via _TASK_RUNNER_REGISTRY,
+    which the worker populates during initialization.
     """
     task = Task.model_validate(task_dict)
 
-    # In production, this would:
-    # 1. Spin up an ephemeral sandbox pod
-    # 2. Clone the repo at task.branch or repo.base_branch
-    # 3. Invoke the harness inside the sandbox
-    # 4. Stream checkpoints via activity heartbeats
-    # 5. Return the TaskResult
-    #
-    # For Phase 2a first slice, we'll call the runner directly (passed via worker config).
-    # The worker setup injects a runner function into activity context.
-
-    heartbeat_details = activity.info().heartbeat_details
-    runner = heartbeat_details.get("runner") if heartbeat_details else None
+    # Get the runner from the registry (populated by worker)
+    runner = _TASK_RUNNER_REGISTRY.get()
     if runner is None:
-        # Fallback: expect runner to be stored in a global or passed differently
-        # This is a simplified implementation; production would use dependency injection
-        raise RuntimeError("TaskRunner not configured in activity context")
+        raise RuntimeError(
+            "TaskRunner not configured. Worker must call set_task_runner() during initialization."
+        )
 
-    # Run the task, with periodic heartbeats for long-running tasks
-    # The checkpoint ID should be included in heartbeats
-    result = runner(task)
+    # Heartbeat callback for long-running tasks
+    def heartbeat():
+        activity.heartbeat(f"Running task {task.id}")
+
+    # Run the task (spawns sandbox, waits for completion, streams heartbeats)
+    if asyncio.iscoroutinefunction(runner):
+        result = await runner(task, heartbeat_callback=heartbeat)
+    else:
+        result = runner(task)
 
     return result.model_dump(mode="json")
 
@@ -199,16 +218,15 @@ async def create_temporal_worker(
     Args:
         client: Temporal client connected to the server
         task_queue: Task queue name to poll
-        runner: The TaskRunner callable that executes tasks
+        runner: The TaskRunner callable that executes tasks (sync or async).
+                For sandbox spawning, pass run_task_in_sandbox from factory.sandbox.
 
     Returns:
         Configured Worker instance (caller must call worker.run())
     """
-    # In production, the runner would be a factory function that spawns sandboxes
-    # For now, we pass it through the worker config for the activity to access
+    # Inject the runner into the registry for activities to access
+    set_task_runner(runner)
 
-    # Note: This is simplified. Production would use proper dependency injection
-    # or a service locator pattern to provide the runner to activities.
     worker = Worker(
         client,
         task_queue=task_queue,

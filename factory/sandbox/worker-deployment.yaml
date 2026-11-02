@@ -1,0 +1,114 @@
+# Example Temporal Worker Deployment
+# Adapt for your cluster and worker configuration
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: factory-temporal-worker
+  namespace: factory-system
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: factory-temporal-worker
+  template:
+    metadata:
+      labels:
+        app: factory-temporal-worker
+    spec:
+      serviceAccountName: factory-temporal-worker
+      containers:
+        - name: worker
+          image: gcr.io/your-project/factory-worker:latest
+          env:
+            - name: TEMPORAL_HOST
+              value: "temporal.example.com:7233"
+            - name: TEMPORAL_NAMESPACE
+              value: "factory"
+            - name: TEMPORAL_TASK_QUEUE
+              value: "factory-tasks"
+            - name: FACTORY_SANDBOX_NAMESPACE
+              value: "factory-sandboxes"
+            - name: FACTORY_SANDBOX_RUNTIME_CLASS
+              value: "gvisor"
+            - name: FACTORY_SANDBOX_IMAGE
+              value: "gcr.io/your-project/agent-harness:latest"
+            - name: FACTORY_SANDBOX_EGRESS_MODE
+              value: "deny-all"
+          resources:
+            requests:
+              cpu: "1"
+              memory: "2Gi"
+            limits:
+              cpu: "2"
+              memory: "4Gi"
+          # Worker needs permissions to create/delete pods in factory-sandboxes
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: factory-temporal-worker
+  namespace: factory-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: factory-worker-pod-manager
+  namespace: factory-sandboxes
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["pods/status"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: factory-worker-pod-manager
+  namespace: factory-sandboxes
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: factory-worker-pod-manager
+subjects:
+  - kind: ServiceAccount
+    name: factory-temporal-worker
+    namespace: factory-system
+---
+# HorizontalPodAutoscaler: scale workers based on Temporal queue depth
+# Requires metrics-server and Temporal metrics exporter
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: factory-temporal-worker-hpa
+  namespace: factory-system
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: factory-temporal-worker
+  minReplicas: 2
+  maxReplicas: 20
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    # TODO: Add custom metric for Temporal queue backlog
+    # - type: External
+    #   external:
+    #     metric:
+    #       name: temporal_task_queue_backlog
+    #       selector:
+    #         matchLabels:
+    #           task_queue: factory-tasks
+    #     target:
+    #       type: AverageValue
+    #       averageValue: "10"
