@@ -9,7 +9,6 @@ from factory.control.kill_switch import (
     FileKillSwitchStore,
     KillSwitch,
     KillSwitchState,
-    KillSwitchStatus,
 )
 
 

@@ -10,9 +10,8 @@ checkpoint and gracefully stop. This is critical for:
 
 from __future__ import annotations
 
-import json
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Protocol
@@ -140,7 +139,7 @@ class KillSwitch:
         """
         status = KillSwitchStatus(
             state=KillSwitchState.PAUSED,
-            paused_at=datetime.now(timezone.utc).isoformat(),
+            paused_at=datetime.now(UTC).isoformat(),
             paused_by=paused_by,
             reason=reason,
             tenant_id=tenant_id,

@@ -11,11 +11,11 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from factory.control.budget_ledger import FileBudgetLedger, TenantUsageRecord
+from factory.control.budget_ledger import FileBudgetLedger
 from factory.schemas import Usage
 
 

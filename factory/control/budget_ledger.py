@@ -7,7 +7,6 @@ audit trails for cost allocation.
 
 from __future__ import annotations
 
-import json
 import os
 import time
 from pathlib import Path
@@ -163,12 +162,14 @@ class FileBudgetLedger:
                 )
         
         # Check per-task token limit
-        if config.tokens_per_task_limit is not None:
-            if usage.total_tokens > config.tokens_per_task_limit:
-                return False, (
-                    f"Task would use {usage.total_tokens} tokens, "
-                    f"limit is {config.tokens_per_task_limit}"
-                )
+        if (
+            config.tokens_per_task_limit is not None
+            and usage.total_tokens > config.tokens_per_task_limit
+        ):
+            return False, (
+                f"Task would use {usage.total_tokens} tokens, "
+                f"limit is {config.tokens_per_task_limit}"
+            )
         
         return True, None
     

@@ -8,7 +8,6 @@ import pytest
 from factory.control.budget_ledger import (
     FileBudgetLedger,
     TenantBudgetConfig,
-    TenantUsageRecord,
 )
 from factory.schemas import Usage
 
