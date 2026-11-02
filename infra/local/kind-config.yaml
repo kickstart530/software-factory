@@ -1,0 +1,24 @@
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: factory
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      # Jaeger UI
+      - containerPort: 16686
+        hostPort: 16686
+        protocol: TCP
+      # OTel collector (for external traces)
+      - containerPort: 4317
+        hostPort: 4317
+        protocol: TCP
+      # PostgreSQL (for local access)
+      - containerPort: 30432
+        hostPort: 5432
+        protocol: TCP
+      # MinIO console
+      - containerPort: 30900
+        hostPort: 9001
+        protocol: TCP
+  - role: worker
+  - role: worker

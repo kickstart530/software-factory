@@ -1,0 +1,17 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: factory-system
+  labels:
+    name: factory-system
+    app.kubernetes.io/part-of: software-factory
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: factory-sandboxes
+  labels:
+    name: factory-sandboxes
+    app.kubernetes.io/part-of: software-factory
+    # Sandboxes run here with restricted policies
