@@ -1,0 +1,40 @@
+# GitHub App Manifest for Software Factory
+#
+# Use this manifest to create a GitHub App for the factory. The app receives
+# webhooks for issues and pull requests, then submits Work Orders to Temporal.
+#
+# Installation:
+# 1. Go to your GitHub organization settings > Developer settings > GitHub Apps
+# 2. Click "New GitHub App"
+# 3. Paste this manifest in the "Create from manifest" flow, or manually configure:
+
+name: Software Factory
+url: https://github.com/kickstart530/software-factory
+hook_attributes:
+  url: https://YOUR_DOMAIN/webhooks/github
+  # For local dev, use a tunnel like ngrok: https://YOUR_NGROK_URL/webhooks/github
+
+# Permissions the app needs (following least privilege for Phase 2a pilot)
+default_permissions:
+  contents: write          # Push branches, read repo contents
+  pull_requests: write     # Create and update PRs
+  issues: read             # Read issue details for Work Order creation
+  metadata: read           # Required baseline permission
+  workflows: read          # Read CI status (for Integrator agent)
+  statuses: read           # Read commit statuses
+
+# Events the app subscribes to
+default_events:
+  - issues
+  - issue_comment
+  - pull_request
+  - pull_request_review
+  - pull_request_review_comment
+  - status
+  - check_run
+  - workflow_run
+
+# Phase 2a pilot: install on one repository only
+# Later: org-wide installation with repo selection
+
+public: false  # Private app for this organization only

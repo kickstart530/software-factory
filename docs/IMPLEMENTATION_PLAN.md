@@ -19,7 +19,7 @@ harness is built first and every agent is built on it.
 | 0. Foundations | **Partial** | ADR-0001..0008 in [`docs/adr/`](adr/); core contracts in `factory/schemas.py`, exported to `schemas/`; CI workflow. Repository foundations are complete. Cloud IaC and hello-world sandbox environment remain open. |
 | 1. Harness MVP | **Core done** | `factory/harness/`: agent loop, tool registry and sandbox tools, policy, hooks, gates, budgets, checkpoints/resume, escalation, telemetry, model client. 50 tests on a scripted model. Still to do: golden task set, replay runner, OTel exporter. |
 | 2a. Temporal Supervisor + GitHub App pilot | **In progress** | In-process Supervisor (`factory/orchestrator.py`) for local testing. Temporal workflow/activities implementation in progress. Agent definitions for planner, implementer, reviewer and integrator. Still to do: complete Temporal integration, GitHub App for one pilot repo. |
-| 2b. Gateways + Policy + Approvals | Not started | MCP tool gateway, OPA policy engine integration, human approval service and UI/Slack interface remain to be built. |
+| 2b. CLI Tooling + Policy + Approvals | Not started | CLI-based tool gateway (extending `factory` CLI), OPA policy engine integration, human approval service and UI/Slack interface remain to be built. |
 
 ---
 
@@ -65,7 +65,7 @@ harness is built first and every agent is built on it.
                 │   └──────────────────────────────────────────────────────────────────┘ │
                 │        │ model calls            │ tool calls          │ artifacts       │
                 │        ▼                        ▼                     ▼                 │
-                │  Model Gateway           Tool Gateway (MCP)     Artifact Store           │
+                │  Model Gateway           Tool Gateway (CLI)     Artifact Store           │
                 │  routing · caching ·     git host · CI · issue  (git + object store +   │
                 │  fallback · rate limit   tracker · cloud APIs   Postgres metadata)      │
                 │                                                                          │
@@ -85,7 +85,7 @@ harness is built first and every agent is built on it.
 | AD-3 | **Blackboard coordination** over typed artifacts and events | Agents never depend on each other's prompts. Any agent can be swapped, replayed or run in parallel. |
 | AD-4 | **Git is the source of truth for code**; every task works on a branch and ends in a PR | Reuses existing review, CI and audit tooling, and gives humans a familiar interface. |
 | AD-5 | **Model Gateway** abstracts providers and tiers | Route by task (small/fast for triage, frontier for architecture and review), with fallback, caching and per-tenant quotas. Model IDs live only in config. |
-| AD-6 | **Tool Gateway speaks MCP** | One permission, audit and credential-injection point for every external action. |
+| AD-6 | **Tool Gateway is CLI-first** | One permission, audit and credential-injection point for every external action. Wraps existing CLIs (gh, git, kubectl) with policy and credential injection. |
 | AD-7 | **Policy-as-code** (OPA/Rego) decides what each agent may do | Least privilege per role and per risk tier, reviewed and versioned like code. |
 | AD-8 | **Deterministic verification before LLM judgement** | Tests and type checks don't hallucinate. LLM review handles what they can't catch. |
 
@@ -104,7 +104,7 @@ equivalent agent loop, and add the factory-specific capabilities below.
 |---|---|---|
 | **Agent loop** | Model ↔ tool turns until done, blocked, or out of budget | Stop conditions: structured `result` emitted, budget exceeded, policy denial, or `escalate` tool called. |
 | **Task contract** | Typed input (Work Order slice), acceptance criteria, output JSON schema | Output validated against the schema; one repair turn on failure, then fail the task. |
-| **Tool router** | Registers tools (local + MCP), validates args, applies policy, injects credentials | Credentials are **never** placed in model context. The gateway attaches them server-side. |
+| **Tool router** | Registers tools (local + gateway CLIs), validates args, applies policy, injects credentials | Credentials are **never** placed in model context. The gateway attaches them server-side. |
 | **Sandboxed execution** | Shell, file edit and test runners inside the task sandbox | Read-only root FS, writable workspace, CPU/mem/disk quotas, egress via allowlist proxy. |
 | **Context manager** | Keeps the working set relevant and under the window | System prompt + task contract pinned; auto-compaction with summaries; retrieval from the Memory service on demand; large tool outputs truncated to a file with a pointer. |
 | **Sub-agent spawning** | Delegates bounded sub-tasks (search, review a file) to fresh contexts | Child gets a narrower tool set and a slice of the parent budget; returns a structured summary only. |
@@ -280,7 +280,7 @@ the agent decides what to pull in and the trace shows why.
 | **0. Foundations** | 2 wks | Repo skeleton, IaC for cluster/Temporal/Postgres/object store, Model Gateway stub, OTel pipeline, ADR-0001..0008 for the decisions above | `terraform apply` brings up an environment; a hello-world sandbox runs with tracing |
 | **1. Harness MVP** | 4 wks | Agent loop, tool router, sandbox exec, budgets, checkpoints, hooks, schema-validated outputs, verification gates, transcript store, replay | A single Implementer agent fixes 30% of a 50-task golden set with all gates enforced |
 | **2a. Temporal Supervisor + GitHub App** | 3 wks | Move Supervisor into Temporal workflows/activities (keeping in-process version for local tests); GitHub App integration for one pilot repo; hand-authored Work Order intake | Temporal orchestrates TaskDAG execution on pilot repo; Work Orders submitted manually flow to merged PR |
-| **2b. Gateways + Policy + Approvals** | 3 wks | MCP Tool Gateway, OPA policy engine, risk-tier gating, human approval service (UI + Slack) | Low-risk changes auto-merge; medium/high changes gate on human approval via Slack |
+| **2b. CLI Tooling + Policy + Approvals** | 3 wks | CLI-based Tool Gateway (extending `factory` CLI for gh/git/CI operations), OPA policy engine, risk-tier gating, human approval service (UI + Slack) | Low-risk changes auto-merge; medium/high changes gate on human approval via Slack |
 | **3. Hardening** | 4 wks | Security Reviewer, Test Engineer, injection defences + adversarial evals, Secrets Broker, multi-tenancy, cost dashboards, kill switch, spot/pre-emption tolerance | Pass a security review; ≥ 50% golden-set solve rate; cost per PR within budget |
 | **4. Full lifecycle** | 4–6 wks | Spec, Architect, Release, SRE, Docs agents; memory "lessons" with promotion workflow; canary + auto-rollback | Medium-risk changes shipped end to end with one human approval |
 | **5. Continuous improvement** | ongoing | Eval-gated prompt/model updates, A/B model routing, per-repo tuning, self-generated golden tasks from merged human PRs | Metrics in §9 trend the right way each month |
@@ -322,7 +322,7 @@ software-factory/
 └── .github/workflows/ci.yml
 ```
 
-Later phases add `gateways/` (model, tools/MCP), `services/` (memory, approvals,
+Later phases add `gateways/` (model, CLI-based tools), `services/` (memory, approvals,
 budget ledger), `sandbox/` (images, runtime class, egress proxy), `evals/`
 (golden, scenario and adversarial suites) and `infra/` (Terraform, Helm/Argo CD).
 
@@ -354,4 +354,4 @@ Done: ADR-0001..0008, the core schemas, and the harness MVP core.
 2. **Sandbox runtime + egress proxy**: package the harness as a container image, run it under gVisor on Kubernetes, and prove isolation with a red-team test. Cloud sandboxes must exist before real agent load.
 3. **Golden task set + replay runner** (`evals/`): 50 historical tasks with hidden tests, run through `factory run`, scored by gate pass rate, cost and turns. Real evals require a sandbox environment to be meaningful. This is the Phase 1 exit test.
 4. **Phase 2a**: move the Supervisor into Temporal workflows/activities (keeping the in-process version for local tests), and add the GitHub App for one pilot repository. Work intake is manual (hand-authored Work Orders) until the Spec agent and full intake flow are built in Phase 4.
-5. **Phase 2b**: add the MCP tool gateway, integrate OPA for policy-as-code, and build the human approval service (UI + Slack interface).
+5. **Phase 2b**: extend the `factory` CLI with credential-injected wrappers for gh/git/CI operations (CLI-based tool gateway), integrate OPA for policy-as-code, and build the human approval service (UI + Slack interface).
