@@ -17,6 +17,7 @@ class RunState(BaseModel):
     """Everything needed to continue a run exactly where it stopped."""
 
     task_id: str
+    work_order_id: str | None = None  # P0 fix: needed for proper checkpoint keying
     agent: str
     agent_version: int
     messages: list[dict[str, Any]] = Field(default_factory=list)
@@ -44,13 +45,18 @@ class FileCheckpointStore:
         self.root = root
         self.root.mkdir(parents=True, exist_ok=True)
 
-    def _dir(self, task_id: str) -> Path:
-        d = self.root / task_id
+    def _dir(self, task_id: str, work_order_id: str | None = None) -> Path:
+        # P0 fix: key checkpoints by work_order_id + task_id to avoid collisions
+        if work_order_id:
+            d = self.root / work_order_id / task_id
+        else:
+            # Backward compat for load() with unknown WO
+            d = self.root / task_id
         d.mkdir(parents=True, exist_ok=True)
         return d
 
     def save(self, state: RunState) -> str:
-        d = self._dir(state.task_id)
+        d = self._dir(state.task_id, state.work_order_id)
         checkpoint_id = f"{time.time_ns()}"
         tmp = d / f"{checkpoint_id}.json.tmp"
         tmp.write_text(state.model_dump_json())
@@ -58,7 +64,15 @@ class FileCheckpointStore:
         (d / "LATEST").write_text(checkpoint_id)
         return checkpoint_id
 
-    def load(self, task_id: str) -> RunState | None:
+    def load(self, task_id: str, work_order_id: str | None = None) -> RunState | None:
+        # P0 fix: try work_order_id/task_id first, fall back to task_id for backward compat
+        if work_order_id:
+            latest = self.root / work_order_id / task_id / "LATEST"
+            if latest.is_file():
+                path = self.root / work_order_id / task_id / f"{latest.read_text().strip()}.json"
+                return RunState.model_validate(json.loads(path.read_text()))
+        
+        # Fallback to old path for backward compat
         latest = self.root / task_id / "LATEST"
         if not latest.is_file():
             return None

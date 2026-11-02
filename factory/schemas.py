@@ -35,6 +35,16 @@ class Budget(Contract):
     soft_limit_ratio: float = Field(
         default=0.8, gt=0, le=1, description="Fraction of a cap at which the agent is warned."
     )
+    
+    @model_validator(mode="after")
+    def _reject_all_none(self) -> Budget:
+        """P0 fix: empty budget {} must not mean unlimited."""
+        if all(getattr(self, f) is None for f in ("tokens", "usd", "wall_clock_s", "turns", "tool_calls")):
+            raise ValueError(
+                "budget must specify at least one cap; an empty budget is not allowed "
+                "(use explicit None values or rely on agent/WO defaults)"
+            )
+        return self
 
 
 class AcceptanceCriterion(Contract):
@@ -93,6 +103,13 @@ class Task(Contract):
     )
     branch: str | None = None
     status: TaskStatus = TaskStatus.PENDING
+    
+    @model_validator(mode="after")
+    def _force_pending_status(self) -> Task:
+        """P0 fix: Planner must not be able to set Task.status to succeeded."""
+        if self.status != TaskStatus.PENDING:
+            self.status = TaskStatus.PENDING
+        return self
 
 
 class TaskDAG(Contract):

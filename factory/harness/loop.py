@@ -95,10 +95,11 @@ class AgentHarness:
     # -- public API ------------------------------------------------------------
 
     def run(self, task: Task) -> TaskResult:
-        state = self.deps.checkpoints.load(task.id)
+        state = self.deps.checkpoints.load(task.id, task.work_order_id)
         if state is None:
             state = RunState(
                 task_id=task.id,
+                work_order_id=task.work_order_id,
                 agent=self.spec.name,
                 agent_version=self.spec.version,
                 messages=[{"role": "user", "content": render_task(task, self.spec)}],
@@ -110,7 +111,7 @@ class AgentHarness:
         return self._loop(task, state)
 
     def answer_escalation(self, task: Task, answer: str) -> TaskResult:
-        state = self.deps.checkpoints.load(task.id)
+        state = self.deps.checkpoints.load(task.id, task.work_order_id)
         if state is None or not state.pending_escalation_id:
             raise ValueError(f"task {task.id} is not waiting on an escalation")
         results = [

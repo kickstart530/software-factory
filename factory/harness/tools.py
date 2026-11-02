@@ -55,6 +55,9 @@ class ToolContext:
             raise ToolError(f"path {path!r} is outside the workspace")
         if resolved.is_relative_to(self.workspace / ".git"):
             raise ToolError("direct access to .git is not allowed; use git via run_command")
+        # P0 fix: gate config must not be editable from the workspace
+        if for_write and resolved == self.workspace / ".factory" / "gates.yaml":
+            raise ToolError("'.factory/gates.yaml' is protected: gate config must not be editable by agents")
         return resolved
 
     def spill(self, text: str, label: str) -> str:
@@ -115,6 +118,13 @@ class Tool:
 
 
 class ToolRegistry:
+    """Registry of tools available to an agent.
+    
+    P0: Tools that fetch external content (web, issues, APIs) MUST be marked
+    trust='untrusted' to enable prompt-injection defenses. Built-in tools that
+    only operate on the workspace or produce deterministic output are 'trusted'.
+    """
+    
     def __init__(self, tools: list[Tool] | None = None):
         self._tools: dict[str, Tool] = {}
         for t in tools or []:
