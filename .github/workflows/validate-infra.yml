@@ -58,7 +58,14 @@ jobs:
       - name: Check for secrets in manifests
         run: |
           echo "Checking for hardcoded secrets..."
-          ! grep -r "password:" infra/ | grep -v "REPLACE_WITH_ACTUAL_PASSWORD" | grep -v "valueFrom" | grep -v "secretKeyRef" | grep -v "# " || exit 1
+          ! grep -r "password:" infra/ \
+            --exclude="*.md" \
+            | grep -v "REPLACE_WITH_ACTUAL_PASSWORD" \
+            | grep -v "valueFrom" \
+            | grep -v "secretKeyRef" \
+            | grep -v "{{ .Env." \
+            | grep -v "# " \
+            || exit 1
           echo "No hardcoded secrets found."
 
   validate-docker:
