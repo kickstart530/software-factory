@@ -1,0 +1,101 @@
+name: Eval Gate Example
+
+on:
+  pull_request:
+    paths:
+      - 'agents/**'
+      - 'config/models.yaml'
+      - 'prompts/**'
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  eval-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Need history to get base branch
+      
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      
+      - name: Install dependencies
+        run: pip install -e ".[dev,otel]"
+      
+      - name: Checkout baseline (main branch)
+        run: |
+          git fetch origin main
+          git checkout origin/main -- agents/ config/models.yaml prompts/ 2>/dev/null || true
+          mkdir -p baseline-config
+          cp -r agents/ baseline-config/agents/ || true
+          cp config/models.yaml baseline-config/models.yaml || true
+          git checkout - -- agents/ config/models.yaml prompts/
+      
+      - name: Run eval gate
+        id: gate
+        run: |
+          factory evals gate \
+            --baseline-agents baseline-config/agents/ \
+            --baseline-models baseline-config/models.yaml \
+            --candidate-agents agents/ \
+            --candidate-models config/models.yaml \
+            --json eval-gate-report.json
+        continue-on-error: true
+      
+      - name: Upload gate report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-gate-report
+          path: eval-gate-report.json
+      
+      - name: Comment PR with results
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = JSON.parse(fs.readFileSync('eval-gate-report.json', 'utf8'));
+            
+            const status = report.has_regressions ? '❌' : '✅';
+            const statusText = report.has_regressions ? 'BLOCKED' : 'PASSED';
+            
+            let comment = `## ${status} Eval Gate ${statusText}\n\n`;
+            comment += `### Baseline\n`;
+            comment += `- Passed: ${report.baseline.passed}\n`;
+            comment += `- Failed: ${report.baseline.failed}\n`;
+            comment += `- Pass rate: ${(report.baseline.pass_rate * 100).toFixed(1)}%\n\n`;
+            comment += `### Candidate\n`;
+            comment += `- Passed: ${report.candidate.passed}\n`;
+            comment += `- Failed: ${report.candidate.failed}\n`;
+            comment += `- Pass rate: ${(report.candidate.pass_rate * 100).toFixed(1)}%\n\n`;
+            
+            if (report.regressions.length > 0) {
+              comment += `### ❌ Regressions (${report.regressions.length})\n\n`;
+              report.regressions.forEach(reg => {
+                comment += `- ${reg}\n`;
+              });
+              comment += `\n⚠️ **This PR introduces eval regressions and cannot be merged until they are fixed.**\n`;
+            }
+            
+            if (report.improvements.length > 0) {
+              comment += `### ✅ Improvements (${report.improvements.length})\n\n`;
+              report.improvements.forEach(imp => {
+                comment += `- ${imp}\n`;
+              });
+            }
+            
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: comment
+            });
+      
+      - name: Fail if regressions detected
+        if: steps.gate.outcome == 'failure'
+        run: exit 1

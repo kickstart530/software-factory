@@ -1,0 +1,16 @@
+{
+  "number": 123,
+  "title": "Fix email validation regex",
+  "description": "The current email validation regex in validators.py has a bug that rejects valid emails with '+' symbols. This PR fixes the regex pattern to properly handle all valid email formats according to RFC 5322.\n\n## Changes\n- Updated email regex pattern\n- Added test cases for edge cases\n- Updated documentation",
+  "author": "developer@example.com",
+  "merged_at": "2026-10-15T14:30:00Z",
+  "base_branch": "main",
+  "labels": ["bug", "validation"],
+  "files_changed": [
+    "validators.py",
+    "tests/test_validators.py"
+  ],
+  "additions": 15,
+  "deletions": 8,
+  "diff": "diff --git a/validators.py b/validators.py\nindex abc1234..def5678 100644\n--- a/validators.py\n+++ b/validators.py\n@@ -10,7 +10,7 @@ import re\n \n def is_valid_email(email: str) -> bool:\n     \"\"\"Check if email address is valid.\"\"\"\n-    pattern = r'^[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$'\n+    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$'\n     return bool(re.match(pattern, email))\n \n def validate_username(username: str) -> bool:\ndiff --git a/tests/test_validators.py b/tests/test_validators.py\nindex 111aaaa..222bbbb 100644\n--- a/tests/test_validators.py\n+++ b/tests/test_validators.py\n@@ -5,6 +5,16 @@ from validators import is_valid_email\n def test_valid_email():\n     assert is_valid_email('user@example.com')\n \n+def test_email_with_plus():\n+    \"\"\"Test that emails with + are valid.\"\"\"\n+    assert is_valid_email('user+tag@example.com')\n+    assert is_valid_email('user+test+tag@example.com')\n+\n+def test_email_with_percent():\n+    \"\"\"Test that emails with % are valid.\"\"\"\n+    assert is_valid_email('user%tag@example.com')\n+\n def test_invalid_email():\n     assert not is_valid_email('not-an-email')\n     assert not is_valid_email('missing@domain')\n"
+}

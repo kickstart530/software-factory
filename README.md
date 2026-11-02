@@ -8,6 +8,7 @@ escalation to humans.
 - **[Getting Started](docs/GETTING_STARTED.md)**: Setup, what works locally vs what needs K8s/Temporal, CLI usage
 - [Implementation Plan](docs/IMPLEMENTATION_PLAN.md): architecture, harness, agent roster, roadmap, status
 - [Architecture Decision Records](docs/adr/README.md): key technical decisions and rationale
+- [Per-Repository Tuning](docs/PER_REPO_TUNING.md): override agent budgets, gates, and model tiers per repository
 
 **Integration & Deployment:**
 - [Temporal Integration](docs/TEMPORAL_INTEGRATION.md): durable workflow orchestration with Temporal
@@ -35,6 +36,15 @@ factory answer --task task.json --workspace path/to/repo --answer "..."
 `task.json` is a `Task` (see `schemas/Task.json`). The target repo defines its
 gate commands in `.factory/gates.yaml`; see this repo's own file for an example.
 Checkpoints, traces and spilled tool output go to `.factory-runs/`.
+
+Repositories can override agent budgets, gates, and model tiers in `.factory/repo.yaml`:
+
+```bash
+factory repo-config validate --workspace path/to/repo
+factory repo-config show --workspace path/to/repo --agent implementer
+```
+
+See [Per-Repository Tuning](docs/PER_REPO_TUNING.md) for configuration options.
 
 ## Layout
 

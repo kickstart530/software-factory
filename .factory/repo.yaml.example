@@ -1,0 +1,35 @@
+# Per-repository configuration overrides for the software-factory.
+#
+# This file allows a repository to customize agent behavior without forking
+# the factory. Place this as `.factory/repo.yaml` in your repo root.
+#
+# All fields are optional; missing fields use the factory's global defaults
+# from `agents/*.yaml` and `config/models.yaml`.
+
+description: "Example repo overrides: tighter budgets for smaller projects"
+
+# Point to your repo-specific conventions document
+conventions: "docs/CONTRIBUTING.md"
+
+# Per-agent overrides
+agents:
+  # Example: reduce implementer budget for a small, low-risk repo
+  implementer:
+    model_tier: mid  # downgrade from frontier to save cost
+    budget:
+      tokens: 2000000  # half the default 4M
+      usd: 12.50       # half the default $25
+      wall_clock_s: 1800  # 30 minutes instead of 45
+      turns: 100       # reduced from 150
+      tool_calls: 300  # reduced from 400
+    gates: [build, unit_tests, lint]  # drop secret_scan if handled elsewhere
+    max_gate_attempts: 2  # fail faster on gate failures
+
+  # Example: stricter gates for reviewer in a high-stakes repo
+  reviewer:
+    gates: [build, unit_tests, lint, secret_scan, integration_tests]
+    max_gate_attempts: 5  # allow more attempts for complex reviews
+
+  # Example: model tier override without budget changes
+  planner:
+    model_tier: frontier  # ensure planner always uses frontier even if default changes

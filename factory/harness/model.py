@@ -5,14 +5,20 @@ The harness talks to a ``ModelClient``; the cloud deployment points
 the provider's content blocks verbatim, because the transcript must be
 append-only: assistant turns, including thinking blocks, are sent back exactly
 as received.
+
+A/B Experiments (Phase 5): The ModelClient supports controlled A/B testing via
+``ExperimentConfig``. Experiments route traffic to model/effort variants with
+sticky assignment by work_order_id or tenant_id, and log the selected variant
+to telemetry for scoring.
 """
 
 from __future__ import annotations
 
+import hashlib
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 import yaml
 from pydantic import BaseModel, ConfigDict
@@ -30,6 +36,87 @@ class TierConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     model: str
     effort: str = "high"
+
+
+class VariantConfig(BaseModel):
+    """One variant in an A/B experiment."""
+
+    model_config = ConfigDict(extra="forbid")
+    weight: int
+    model: str
+    effort: str = "high"
+
+
+class ExperimentDefinition(BaseModel):
+    """A/B experiment definition for a single tier."""
+
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool
+    tier: str
+    sticky_by: Literal["work_order_id", "tenant_id"] | None = None
+    variants: dict[str, VariantConfig]
+
+    def select_variant(self, assignment_key: str | None) -> tuple[str, VariantConfig]:
+        """Select a variant based on assignment key and weights.
+
+        Returns (variant_name, variant_config). If sticky_by is set and
+        assignment_key is provided, uses deterministic hashing. Otherwise
+        uses weighted random selection (which requires seeding externally).
+        """
+        if not self.variants:
+            raise ValueError(f"experiment for tier {self.tier} has no variants")
+
+        if self.sticky_by and assignment_key:
+            # Deterministic sticky assignment via hash
+            hash_input = f"{self.tier}:{assignment_key}".encode()
+            hash_val = int(hashlib.sha256(hash_input).hexdigest(), 16)
+            total_weight = sum(v.weight for v in self.variants.values())
+            position = hash_val % total_weight
+
+            cumulative = 0
+            for name, variant in self.variants.items():
+                cumulative += variant.weight
+                if position < cumulative:
+                    return name, variant
+
+        # Weighted random selection (fallback or when no sticky assignment)
+        import random
+
+        total_weight = sum(v.weight for v in self.variants.values())
+        position = random.randint(0, total_weight - 1)
+
+        cumulative = 0
+        for name, variant in self.variants.items():
+            cumulative += variant.weight
+            if position < cumulative:
+                return name, variant
+
+        # Fallback to first variant (should not reach here)
+        first = next(iter(self.variants.items()))
+        return first[0], first[1]
+
+
+class ExperimentConfig(BaseModel):
+    """Collection of A/B experiments."""
+
+    model_config = ConfigDict(extra="forbid")
+    experiments: dict[str, ExperimentDefinition] = {}
+
+    @classmethod
+    def load(cls, path: Path) -> ExperimentConfig:
+        if not path.exists():
+            return cls(experiments={})
+        data = yaml.safe_load(path.read_text())
+        if data is None or data.get("experiments") is None:
+            return cls(experiments={})
+        return cls.model_validate(data)
+
+    def get_active_experiment(self, tier: str) -> tuple[str, ExperimentDefinition] | None:
+        """Return (experiment_id, experiment) for the given tier, or None."""
+        for exp_id, exp in self.experiments.items():
+            if exp.enabled and exp.tier == tier:
+                return exp_id, exp
+        return None
 
 
 class ModelConfig(BaseModel):
@@ -52,6 +139,9 @@ class ModelRequest:
     system: str
     messages: list[dict[str, Any]]
     tools: list[dict[str, Any]]
+    # Context for A/B experiment sticky assignment
+    work_order_id: str | None = None
+    tenant_id: str | None = None
 
 
 @dataclass
@@ -64,6 +154,9 @@ class ModelResponse:
     cache_read_tokens: int = 0
     cache_write_tokens: int = 0
     refusal_category: str | None = None
+    # A/B experiment metadata (set if request was part of an experiment)
+    experiment_id: str | None = None
+    variant: str | None = None
 
     def tool_calls(self) -> list[dict[str, Any]]:
         return [b for b in self.content if b.get("type") == "tool_use"]
@@ -77,11 +170,22 @@ class ModelClient(Protocol):
 
 
 class AnthropicModelClient:
-    """Claude via the Messages API: streaming, adaptive thinking, refusal fallbacks."""
+    """Claude via the Messages API: streaming, adaptive thinking, refusal fallbacks.
+
+    Supports A/B experiments (Phase 5): if an ExperimentConfig is provided and
+    an active experiment exists for the requested tier, routes to a variant
+    instead of the tier's default model/effort.
+    """
 
     FALLBACK_BETA = "server-side-fallback-2026-07-01"
 
-    def __init__(self, config: ModelConfig, client: Any | None = None, max_tokens: int = 64_000):
+    def __init__(
+        self,
+        config: ModelConfig,
+        client: Any | None = None,
+        max_tokens: int = 64_000,
+        experiments: ExperimentConfig | None = None,
+    ):
         if client is None:
             import anthropic
 
@@ -99,12 +203,33 @@ class AnthropicModelClient:
         self.client = client
         self.config = config
         self.max_tokens = max_tokens
+        self.experiments = experiments or ExperimentConfig()
 
     def complete(self, request: ModelRequest) -> ModelResponse:
-        tier = self.config.tiers[request.tier]
+        # Check for active A/B experiment for this tier
+        experiment_id: str | None = None
+        variant_name: str | None = None
+        tier_config = self.config.tiers[request.tier]
+        model = tier_config.model
+        effort = tier_config.effort
+
+        active = self.experiments.get_active_experiment(request.tier)
+        if active:
+            experiment_id, experiment = active
+            # Determine sticky assignment key based on experiment config
+            assignment_key: str | None = None
+            if experiment.sticky_by == "work_order_id":
+                assignment_key = request.work_order_id
+            elif experiment.sticky_by == "tenant_id":
+                assignment_key = request.tenant_id
+
+            variant_name, variant = experiment.select_variant(assignment_key)
+            model = variant.model
+            effort = variant.effort
+
         tools = [{**t, "eager_input_streaming": True} for t in request.tools]
         kwargs: dict[str, Any] = dict(
-            model=tier.model,
+            model=model,
             max_tokens=self.max_tokens,
             system=[
                 {"type": "text", "text": request.system, "cache_control": {"type": "ephemeral"}}
@@ -112,7 +237,7 @@ class AnthropicModelClient:
             messages=request.messages,
             tools=tools,
             thinking={"type": "adaptive"},
-            output_config={"effort": tier.effort},
+            output_config={"effort": effort},
             # On a safety decline, re-run server-side on the recommended model
             # instead of failing the task.
             betas=[self.FALLBACK_BETA],
@@ -130,6 +255,8 @@ class AnthropicModelClient:
             cache_read_tokens=getattr(usage, "cache_read_input_tokens", 0) or 0,
             cache_write_tokens=getattr(usage, "cache_creation_input_tokens", 0) or 0,
             refusal_category=getattr(stop_details, "category", None) if stop_details else None,
+            experiment_id=experiment_id,
+            variant=variant_name,
         )
 
     def _stream(self, kwargs: dict[str, Any]):
@@ -154,7 +281,14 @@ class ScriptedModelClient:
 
     def complete(self, request: ModelRequest) -> ModelResponse:
         self.requests.append(
-            ModelRequest(request.tier, request.system, list(request.messages), request.tools)
+            ModelRequest(
+                request.tier,
+                request.system,
+                list(request.messages),
+                request.tools,
+                request.work_order_id,
+                request.tenant_id,
+            )
         )
         if not self.responses:
             raise RuntimeError("scripted model ran out of responses")

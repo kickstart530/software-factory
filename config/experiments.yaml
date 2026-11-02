@@ -1,0 +1,28 @@
+# A/B experiment definitions for model routing (Phase 5 AD-5).
+#
+# Each experiment defines variants with traffic splits and optional sticky
+# assignment by work_order_id or tenant_id. The ModelClient logs which variant
+# was used for every call so experiments can be scored in telemetry.
+#
+# To run an experiment:
+# 1. Define it here with variants and traffic allocation
+# 2. Set enabled: true
+# 3. Model calls for the specified tier will be routed according to the split
+# 4. Query telemetry for model.call events with experiment_id and variant fields
+# 5. After experiment concludes, set enabled: false or remove the entry
+
+experiments:
+  # Example: test mid tier with claude-opus-5-5 high effort vs medium effort
+  # mid-tier-effort-test:
+  #   enabled: false
+  #   tier: mid
+  #   sticky_by: work_order_id  # or tenant_id, or null for random per-call
+  #   variants:
+  #     control:
+  #       weight: 50
+  #       model: claude-opus-5-5
+  #       effort: medium
+  #     treatment:
+  #       weight: 50
+  #       model: claude-opus-5-5
+  #       effort: high
