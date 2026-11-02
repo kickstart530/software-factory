@@ -21,7 +21,8 @@ harness is built first and every agent is built on it.
 | 2a. Temporal Supervisor + GitHub App pilot | **Complete** | In-process Supervisor (`factory/orchestrator.py`) for local testing. Temporal workflow/activities in `factory/temporal_supervisor.py`. Temporal cluster infrastructure in `infra/temporal/`. Sandbox pod spawner with credential isolation in `factory/sandbox/`. GitHub App webhook receiver (`github_app/`) integrated with Temporal workflow starts. Agent definitions for planner, implementer, reviewer and integrator in `agents/`. End-to-end integration operational; production pipeline ready for pilot repository deployment. |
 | 2b. Policy & Approvals | **Complete** | OPA-compatible policy engine (`factory/harness/policy_engine.py`), human approval service (`factory/harness/approvals.py`) with CLI interface (`factory approve` subcommands). Risk-tier computation for path-based and change-based scoring. CLI-first per ADR-0009 (MCP deferred). Integration guide at [`docs/phase2b-integration-guide.md`](phase2b-integration-guide.md). Slack UI for approvals deferred to Phase 4. |
 | 3. Hardening | **Complete** | Security Reviewer + Test Engineer agents, injection + adversarial evals suite, Secrets Broker integration, multi-tenancy support + budget ledger, cost dashboards, kill switch implementation, spot instance + pre-emption handling. PRs #15–#20 merged to main. |
-| 4. Full lifecycle | **In progress** | Spec, Architect, Release, SRE and Docs agent scaffolds; memory "lessons" promotion workflow design. Canary deployment + auto-rollback mechanisms under development. |
+| 4. Full lifecycle | **Complete** | Spec, Architect, Release, SRE, and Docs agents with schemas in `factory/agents/` and `factory/schemas.py`; memory lessons with promotion workflow in `factory/memory/`; canary deployment + auto-rollback in `factory/release/`. Delivered in PRs #21 (plan status), #22 (agents + schemas), #24 (memory lessons + promotion), #23 (canary + rollback). |
+| 5. Continuous improvement | **In progress** | Starting eval-gated prompt/model updates, A/B model routing, per-repo tuning, and self-generated golden tasks from merged human PRs. |
 
 ---
 
@@ -363,10 +364,13 @@ See [`docs/GETTING_STARTED.md`](GETTING_STARTED.md) for setup and deployment gui
 
 Security Reviewer + Test Engineer agents deployed. Injection and adversarial evals suite operational. Secrets Broker integrated, multi-tenancy support + budget ledger live, cost dashboards available, kill switch verified, spot instance + pre-emption handling tested. PRs #15–#20 merged to main.
 
-**Phase 4: Full lifecycle (In Progress)**
+**Phase 4: Full lifecycle (Complete)**
 
-Current focus areas:
+Full lifecycle agents (Spec, Architect, Release, SRE, Docs) with schemas and agent definitions; memory lessons with promotion workflow; canary deployment + auto-rollback. Delivered in PRs #21 (plan status), #22 (agents + schemas), #24 (memory lessons + promotion), #23 (canary + rollback).
 
-1. **Agent scaffold completion**: Spec, Architect, Release, SRE and Docs agents under development; initial implementations being tested against pilot work orders.
-2. **Memory lessons workflow**: promotion pipeline design complete; building review + eval gates to prevent bad lessons from reinforcing mistakes.
-3. **Canary + auto-rollback**: staged rollout orchestration and health-based rollback mechanisms in development; SRE agent integration pending.
+**Phase 5: Continuous improvement (Current focus)**
+
+1. **Eval-gated prompt/model updates**: changes to agent prompts or model selections must pass the golden-suite regression test before merge.
+2. **A/B model routing**: route tasks to different model tiers or providers in production, compare outcomes, and promote the winner.
+3. **Per-repo tuning**: adapt agent behavior (tool policies, gate thresholds, prompts) based on repository-specific conventions and historical run data.
+4. **Self-generated golden tasks**: extract representative tasks from merged human PRs to continuously expand the eval suite with real-world scenarios.
