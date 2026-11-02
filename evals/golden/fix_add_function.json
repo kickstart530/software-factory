@@ -1,0 +1,78 @@
+{
+  "description": "Fix add() function that subtracts instead of adds",
+  "task": {
+    "id": "golden_001",
+    "work_order_id": "WO_TEST_001",
+    "agent": "implementer",
+    "title": "Fix add function",
+    "instructions": "The add() function in app.py currently subtracts. Fix it to add instead."
+  },
+  "agent_spec": {
+    "name": "implementer",
+    "version": 1,
+    "description": "Implements one task with tests",
+    "model_tier": "frontier",
+    "system_prompt": "prompts/implementer.md",
+    "tools": ["read_file", "edit_file", "submit_result"],
+    "budget": {
+      "turns": 20,
+      "usd": 10.0
+    },
+    "gates": [],
+    "max_gate_attempts": 2,
+    "output_schema": "ImplementationResult"
+  },
+  "expected_status": "succeeded",
+  "expected_gates": [],
+  "model_responses": [
+    {
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "toolu_001",
+          "name": "read_file",
+          "input": {"path": "app.py"}
+        }
+      ],
+      "stop_reason": "tool_use",
+      "model": "test-model",
+      "input_tokens": 1000,
+      "output_tokens": 50
+    },
+    {
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "toolu_002",
+          "name": "edit_file",
+          "input": {
+            "path": "app.py",
+            "old": "return a - b",
+            "new": "return a + b"
+          }
+        }
+      ],
+      "stop_reason": "tool_use",
+      "model": "test-model",
+      "input_tokens": 1100,
+      "output_tokens": 60
+    },
+    {
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "toolu_003",
+          "name": "submit_result",
+          "input": {
+            "summary": "Fixed add() to actually add instead of subtract",
+            "files_changed": ["app.py"]
+          }
+        }
+      ],
+      "stop_reason": "tool_use",
+      "model": "test-model",
+      "input_tokens": 1150,
+      "output_tokens": 40
+    }
+  ]
+}

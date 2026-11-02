@@ -1,0 +1,61 @@
+{
+  "description": "Task that escalates due to ambiguity",
+  "task": {
+    "id": "golden_003",
+    "work_order_id": "WO_TEST_003",
+    "agent": "implementer",
+    "title": "Update API endpoint",
+    "instructions": "The /api/data endpoint needs updating, but the requirements are unclear."
+  },
+  "agent_spec": {
+    "name": "implementer",
+    "version": 1,
+    "description": "Test agent",
+    "model_tier": "frontier",
+    "system_prompt": "prompts/implementer.md",
+    "tools": ["read_file", "escalate", "submit_result"],
+    "budget": {
+      "turns": 20,
+      "usd": 10.0
+    },
+    "gates": [],
+    "max_gate_attempts": 2,
+    "output_schema": "ImplementationResult"
+  },
+  "expected_status": "escalated",
+  "expected_gates": [],
+  "model_responses": [
+    {
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "toolu_006",
+          "name": "read_file",
+          "input": {"path": "api.py"}
+        }
+      ],
+      "stop_reason": "tool_use",
+      "model": "test-model",
+      "input_tokens": 1000,
+      "output_tokens": 50
+    },
+    {
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "toolu_007",
+          "name": "escalate",
+          "input": {
+            "reason": "Requirements are ambiguous",
+            "question": "Should the endpoint return JSON or XML?",
+            "options": ["JSON", "XML", "Both"]
+          }
+        }
+      ],
+      "stop_reason": "tool_use",
+      "model": "test-model",
+      "input_tokens": 1100,
+      "output_tokens": 70
+    }
+  ]
+}
