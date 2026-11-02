@@ -1,0 +1,47 @@
+{
+  "additionalProperties": false,
+  "description": "Output from the Docs agent: what docs were updated and why.",
+  "properties": {
+    "summary": {
+      "minLength": 1,
+      "title": "Summary",
+      "type": "string"
+    },
+    "files_updated": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Files Updated",
+      "type": "array"
+    },
+    "sections_added": {
+      "description": "New sections or pages.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Sections Added",
+      "type": "array"
+    },
+    "sections_updated": {
+      "description": "Sections changed to match new behaviour.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Sections Updated",
+      "type": "array"
+    },
+    "sections_removed": {
+      "description": "Deprecated or deleted content.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Sections Removed",
+      "type": "array"
+    }
+  },
+  "required": [
+    "summary"
+  ],
+  "title": "DocsResult",
+  "type": "object"
+}

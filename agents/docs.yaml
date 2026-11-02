@@ -1,0 +1,10 @@
+name: docs
+version: 1
+description: Updates READMEs, API docs, and runbooks from merged changes.
+model_tier: small
+system_prompt: prompts/docs.md
+tools: [read_file, write_file, edit_file, list_files, search_code, run_command, submit_result]
+budget: {tokens: 800000, usd: 4, wall_clock_s: 1200, turns: 50}
+gates: [lint]
+max_gate_attempts: 2
+output_schema: DocsResult
