@@ -1,0 +1,143 @@
+---
+# Kubernetes manifests for sandbox infrastructure (Phase 2a)
+# These are reference manifests; adapt for your cluster and IaC tooling.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: factory-sandboxes
+  labels:
+    name: factory-sandboxes
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: factory-sandbox-runner
+  namespace: factory-sandboxes
+---
+# NetworkPolicy: deny-all egress by default, allow DNS
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sandbox-egress-deny-all
+  namespace: factory-sandboxes
+spec:
+  podSelector:
+    matchLabels:
+      app: factory-sandbox
+  policyTypes:
+    - Egress
+  egress:
+    # Allow DNS
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+---
+# RuntimeClass for gVisor isolation
+# Note: This requires gVisor to be installed on your cluster
+# GKE: Use sandbox.gke.io/runtime=gvisor node pool
+# EKS: Install gVisor via DaemonSet or use Kata Containers
+apiVersion: node.k8s.io/v1
+kind: RuntimeClass
+metadata:
+  name: gvisor
+handler: runsc  # For gVisor
+---
+# Example: allowlist NetworkPolicy for package registries
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sandbox-egress-allowlist
+  namespace: factory-sandboxes
+spec:
+  podSelector:
+    matchLabels:
+      app: factory-sandbox
+  policyTypes:
+    - Egress
+  egress:
+    # DNS
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+    # Example: Allow PyPI (files.pythonhosted.org uses Fastly CDN)
+    # In production, use an egress proxy for domain-based filtering
+    - to:
+        - ipBlock:
+            cidr: 151.101.0.0/16  # Fastly CDN (PyPI)
+    - to:
+        - ipBlock:
+            cidr: 185.199.108.0/22  # GitHub Pages / githubusercontent.com
+---
+# ResourceQuota: limit total resources for sandbox pods
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: sandbox-quota
+  namespace: factory-sandboxes
+spec:
+  hard:
+    requests.cpu: "100"       # 100 CPUs total
+    requests.memory: "200Gi"  # 200 GB RAM total
+    limits.cpu: "200"
+    limits.memory: "400Gi"
+    pods: "100"               # Max 100 concurrent sandbox pods
+---
+# LimitRange: default resources for pods without explicit requests/limits
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: sandbox-defaults
+  namespace: factory-sandboxes
+spec:
+  limits:
+    - max:
+        cpu: "4"
+        memory: "8Gi"
+        ephemeral-storage: "20Gi"
+      default:
+        cpu: "2"
+        memory: "4Gi"
+        ephemeral-storage: "10Gi"
+      defaultRequest:
+        cpu: "1"
+        memory: "2Gi"
+        ephemeral-storage: "5Gi"
+      type: Container
+---
+# PodSecurityPolicy (deprecated in K8s 1.25+, use Pod Security Standards)
+# For clusters < 1.25:
+apiVersion: policy/v1beta1
+kind: PodSecurityPolicy
+metadata:
+  name: factory-sandbox-psp
+spec:
+  privileged: false
+  allowPrivilegeEscalation: false
+  requiredDropCapabilities:
+    - ALL
+  volumes:
+    - emptyDir
+    - secret
+    - configMap
+  runAsUser:
+    rule: MustRunAsNonRoot
+  seLinux:
+    rule: RunAsAny
+  fsGroup:
+    rule: RunAsAny
+  readOnlyRootFilesystem: false  # TODO: Enable when harness supports it
+---
+# For clusters >= 1.25, enforce Pod Security Standards via namespace labels:
+# kubectl label namespace factory-sandboxes \
+#   pod-security.kubernetes.io/enforce=restricted \
+#   pod-security.kubernetes.io/audit=restricted \
+#   pod-security.kubernetes.io/warn=restricted

@@ -91,18 +91,19 @@ docker run --rm -d -p 7233:7233 -p 8233:8233 \
 ```python
 from temporalio.client import Client
 from factory.temporal_supervisor import create_temporal_worker, TemporalConfig
+from factory.sandbox import run_task_in_sandbox
 
 
 async def main():
     config = TemporalConfig(host="localhost:7233", namespace="default")
     client = await config.create_client()
 
-    # In production, runner would spawn sandboxes; for local dev, pass a test runner
-    def my_runner(task):
-        # ... your TaskRunner implementation
-        pass
-
-    worker = await create_temporal_worker(client, "factory-tasks", my_runner)
+    # Production worker: spawns sandbox pods for tasks
+    worker = await create_temporal_worker(
+        client,
+        "factory-tasks",
+        runner=run_task_in_sandbox,  # Async runner that spawns Kubernetes pods
+    )
     await worker.run()
 
 
@@ -135,9 +136,17 @@ When Phase 2a is complete, the production deployment will include:
 
 1. **Temporal Cloud** or self-hosted Temporal cluster (on Kubernetes)
 2. **Worker pool**: autoscaling Kubernetes deployment that runs workers
-3. **Sandbox spawning**: `run_task_activity` launches gVisor pods, not in-process calls
+3. **Sandbox spawning**: `run_task_activity` launches gVisor pods via `SandboxSpawner`
 4. **GitHub App**: receives webhooks, submits Work Orders as Temporal workflows
 5. **Checkpoint streaming**: activities heartbeat checkpoint IDs for observability
+
+### Sandbox Pod Architecture
+
+See [`factory/sandbox/README.md`](../factory/sandbox/README.md) for details on:
+- **Credential isolation**: Clean HOME, no host mounts (~/.ssh, ~/.config, ~/.netrc)
+- **Network isolation**: NetworkPolicy with deny-all default, optional egress proxy
+- **Runtime isolation**: gVisor/Kata runtime class, resource quotas, seccomp
+- **Explicit credential injection**: Via Secrets Broker (Phase 2b)
 
 ## Testing
 
@@ -163,15 +172,19 @@ This PR is the **first slice** of Phase 2a. It delivers:
 - ✅ Same TaskRunner contract as in-process Supervisor
 - ✅ Unit tests and structure
 - ✅ Dependencies added to `pyproject.toml`
+- ✅ **Sandbox pod spawning implementation**
+- ✅ **Credential isolation (clean HOME, no host mounts)**
+- ✅ **Egress control (NetworkPolicy + proxy config)**
+- ✅ **TaskRunner injection via registry (not heartbeats)**
 
 Still to do (remaining Phase 2a work):
 
 - ❌ GitHub App integration
-- ❌ Sandbox spawning (run_task_activity currently expects a local runner)
 - ❌ Full integration tests with Temporal test environment
 - ❌ Production Temporal cluster setup (IaC)
 - ❌ Worker deployment (Kubernetes manifests)
 - ❌ Checkpoint streaming via activity heartbeats
+- ❌ Secrets Broker integration (explicit credential injection)
 
 Phase 2b will add:
 
