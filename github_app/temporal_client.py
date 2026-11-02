@@ -58,9 +58,7 @@ async def submit_work_order_to_temporal(
         ],
     }
 
-    logger.info(
-        f"Starting Temporal workflow {workflow_id} for Work Order {work_order_id}"
-    )
+    logger.info(f"Starting Temporal workflow {workflow_id} for Work Order {work_order_id}")
 
     try:
         # Start the workflow
@@ -81,7 +79,5 @@ async def submit_work_order_to_temporal(
         }
 
     except Exception as e:
-        logger.error(
-            f"Failed to start workflow {workflow_id}: {e}", exc_info=True
-        )
+        logger.error(f"Failed to start workflow {workflow_id}: {e}", exc_info=True)
         raise

@@ -33,14 +33,14 @@ async def create_temporal_client() -> Client | None:
     """Create Temporal client from environment configuration."""
     temporal_host = os.getenv("TEMPORAL_HOST", "localhost:7233")
     temporal_namespace = os.getenv("TEMPORAL_NAMESPACE", "default")
-    
+
     try:
         logger.info(f"Connecting to Temporal at {temporal_host}, namespace {temporal_namespace}")
         client = await Client.connect(temporal_host, namespace=temporal_namespace)
-        
+
         # Store task queue on client for webhook receiver to use
         client._task_queue = os.getenv("TEMPORAL_TASK_QUEUE", "factory-tasks")
-        
+
         logger.info("Temporal client connected successfully")
         return client
     except Exception as e:

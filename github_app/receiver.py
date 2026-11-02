@@ -188,10 +188,8 @@ class WebhookReceiver:
         try:
             # Get task queue from client (set by server.py)
             task_queue = getattr(temporal_client, "_task_queue", "factory-tasks")
-            
-            result = await submit_work_order_to_temporal(
-                temporal_client, work_order, task_queue
-            )
+
+            result = await submit_work_order_to_temporal(temporal_client, work_order, task_queue)
 
             logger.info(f"Work Order {work_order['id']} submitted successfully")
             return result

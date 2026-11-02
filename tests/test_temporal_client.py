@@ -1,7 +1,8 @@
 """Tests for Temporal client integration (github_app/temporal_client.py)."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from github_app.temporal_client import submit_work_order_to_temporal
 
@@ -36,9 +37,7 @@ async def test_submit_work_order_success():
         "labels": ["github-issue-123"],
     }
 
-    result = await submit_work_order_to_temporal(
-        mock_client, work_order, task_queue="test-queue"
-    )
+    result = await submit_work_order_to_temporal(mock_client, work_order, task_queue="test-queue")
 
     assert result["status"] == "submitted"
     assert result["work_order_id"] == "WO-test-123"
@@ -48,11 +47,11 @@ async def test_submit_work_order_success():
     # Verify workflow started correctly
     mock_client.start_workflow.assert_called_once()
     call_args = mock_client.start_workflow.call_args
-    
+
     # The DAG is passed via args keyword parameter
     assert call_args.kwargs["id"] == "factory-WO-test-123"
     assert call_args.kwargs["task_queue"] == "test-queue"
-    
+
     # Workflow name is the first positional arg, DAG is in args kwarg
     assert len(call_args.args) >= 1
     assert call_args.args[0] == "execute_task_dag"
@@ -72,9 +71,7 @@ async def test_submit_work_order_success():
 async def test_submit_work_order_temporal_error():
     """Test Work Order submission when Temporal fails."""
     mock_client = MagicMock()
-    mock_client.start_workflow = AsyncMock(
-        side_effect=Exception("Temporal connection failed")
-    )
+    mock_client.start_workflow = AsyncMock(side_effect=Exception("Temporal connection failed"))
 
     work_order = {
         "id": "WO-test-456",

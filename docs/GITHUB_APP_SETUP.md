@@ -253,16 +253,19 @@ from temporalio.client import Client
 from factory.temporal_supervisor import create_temporal_worker
 from factory.schemas import Task, TaskResult, TaskStatus
 
+
 def dummy_runner(task: Task) -> TaskResult:
     """Dummy runner that returns success."""
     print(f"Running task {task.id}: {task.title}")
     return TaskResult(task_id=task.id, status=TaskStatus.SUCCEEDED, summary="Done")
+
 
 async def main():
     client = await Client.connect("localhost:7233", namespace="default")
     worker = await create_temporal_worker(client, "factory-tasks", dummy_runner)
     print("Worker started on task queue: factory-tasks")
     await worker.run()
+
 
 if __name__ == "__main__":
     asyncio.run(main())
