@@ -32,20 +32,27 @@ Software Factory is under active development. Here's what exists today:
 ### Phase 2a: Core Pipeline (In Progress)
 - ✅ In-process Supervisor (`factory/orchestrator.py`)
 - ✅ Agent definitions: `planner`, `implementer`, `reviewer`, `integrator`
-- ⏳ **Temporal orchestration**: first slice landed; full cluster integration **remaining**
-- ⏳ **GitHub App integration**: **not yet implemented**
-- ⏳ **Sandbox pods**: **not yet implemented**
-- ⏳ Tool Gateway (MCP): **planned but not started**
+- ✅ **Temporal orchestration**: first slice landed (see [TEMPORAL_INTEGRATION.md](TEMPORAL_INTEGRATION.md))
+- ✅ **GitHub App integration**: webhook receiver and API client implemented (see [GITHUB_APP_SETUP.md](GITHUB_APP_SETUP.md))
+- 🚧 **Temporal cluster infrastructure**: deployment manifests and ops guides (PR #7 - in review)
+- 🚧 **Sandbox pods**: Kubernetes spawner with credential isolation (PR #8 - in review)
+- ⏳ **Phase 2b**: Policy engine (OPA) and human approval service (PR #9 - in review)
 
-**Architecture approach:** CLI-first for near-term tooling. MCP integration is planned for Phase 2 tool gateway but is not required for current development or operation.
+**Architecture approach:** CLI-first for external tools and near-term development. MCP was evaluated but deferred in favor of CLI-based tool integration (see [ADR-0006](adr/0006-tool-gateway-cli-first.md)).
 
 ## Setup
 
 ### Prerequisites
 
+**For local CLI development:**
 - Python 3.12 or later
 - Git
 - (Optional) Anthropic API credentials to run tasks against real models
+
+**For production deployment (not needed for local development):**
+- Kubernetes cluster with gVisor or Kata Containers support
+- Temporal server (Cloud or self-hosted)
+- See upcoming guides in PRs #7 (Temporal cluster) and #8 (sandbox pods)
 
 ### Installation
 
@@ -188,12 +195,12 @@ The Supervisor (orchestrator) schedules ready tasks in parallel and enforces the
 }
 ```
 
-**Planned (Phase 2+):** Work Orders will be submitted via:
-- GitHub issues (via GitHub App integration)
-- Slack commands
-- Web UI or API
+**Coming soon:** Automated Work Order intake via:
+- **GitHub issues**: Webhook receiver implemented (see [GITHUB_APP_SETUP.md](GITHUB_APP_SETUP.md)); end-to-end integration requires Temporal cluster (PR #7)
+- **Slack commands**: Planned for Phase 2b
+- **Web UI or API**: Planned for later phases
 
-The Supervisor will automatically decompose them into a TaskDAG using the `planner` agent and schedule execution.
+Once the infrastructure is deployed, the Supervisor will automatically decompose Work Orders into a TaskDAG using the `planner` agent and schedule execution across the worker pool.
 
 ## Phases and Gates
 
@@ -314,32 +321,47 @@ Every agent is a configuration of this single harness implementation.
 
 ### Supervisor
 
-The Supervisor (`factory/orchestrator.py`) owns a Work Order end-to-end:
+The Supervisor owns a Work Order end-to-end:
 
 1. Decomposes it into a TaskDAG (via the `planner` agent)
 2. Schedules ready tasks in parallel (respecting dependencies)
 3. Monitors progress and re-plans on failures
 4. Escalates to humans when needed
 
-**Current state:** In-process Python implementation.  
-**Planned:** Migrating to Temporal for durable workflow execution with retries, timeouts, and human-wait states.
+**Available today:**
+- In-process implementation: `factory/orchestrator.py` (runs locally via CLI)
+- Temporal workflow definitions: `factory/temporal_supervisor.py` (see [TEMPORAL_INTEGRATION.md](TEMPORAL_INTEGRATION.md))
+
+**Requires infrastructure:**
+- Production Temporal cluster and worker pool (PR #7 - coming soon)
+- Sandbox pod spawning for isolated task execution (PR #8 - coming soon)
 
 ### Sandboxes
 
-**Current state:** The harness tools execute in the same process as the CLI (for development).  
-**Planned (Phase 2):** Each task runs in an ephemeral sandbox:
-- gVisor or Firecracker microVM on Kubernetes
-- Isolated filesystem with read-only root and writable workspace
-- CPU, memory, and disk quotas
-- Egress via allowlist proxy
+**Current state (local development):** The harness tools execute in the same process as the CLI. Suitable for development and testing on your local machine.
 
-This provides blast-radius isolation: a task cannot affect other tasks or the host.
+**Coming soon (production deployment):** Each task will run in an ephemeral Kubernetes pod (PR #8):
+- Clean HOME directory (no host credentials accessible)
+- gVisor runtime for user-space kernel isolation
+- Network policies with egress control (deny-all default)
+- Non-root execution with dropped capabilities
+- CPU, memory, and disk quotas
+- Automatic cleanup after task completion
+
+This provides blast-radius isolation: a task cannot affect other tasks, access host credentials, or make unauthorized network connections. See the upcoming `factory/sandbox/README.md` for the full security model.
 
 ## Further Reading
 
+### Available Now
 - **[Implementation Plan](IMPLEMENTATION_PLAN.md)**: Full architecture, roadmap, agent roster, cloud platform, risks
-- **[Architecture Decision Records](adr/README.md)**: Why we chose durable workflows, ephemeral sandboxes, typed artifacts, git source-of-truth, model/tool gateways, policy-as-code, and deterministic gates
-- **Temporal Integration** (planned doc): How Temporal workflows orchestrate the task DAG, checkpoints, and human approvals
+- **[Architecture Decision Records](adr/README.md)**: Why we chose durable workflows, ephemeral sandboxes, typed artifacts, git source-of-truth, CLI-first tools, policy-as-code, and deterministic gates
+- **[Temporal Integration](TEMPORAL_INTEGRATION.md)**: How Temporal workflows orchestrate the task DAG, checkpoints, and human approvals
+- **[GitHub App Setup](GITHUB_APP_SETUP.md)**: Installing and configuring the webhook receiver for Work Order intake
+
+### Upcoming (in open PRs)
+- **Temporal Operations Guide**: Production cluster deployment and monitoring (PR #7)
+- **Sandbox Deployment Guide**: Kubernetes pod spawning with credential isolation (PR #8)
+- **Phase 2b Integration**: Policy engine (OPA) and human approval workflows (PR #9)
 
 ## Development Workflow
 
@@ -357,23 +379,31 @@ This provides blast-radius isolation: a task cannot affect other tasks or the ho
 - Look at `agents/*.yaml` for example agent configurations
 - Review `.factory/gates.yaml` in this repo to see how gates are defined
 
-## Limitations and Next Steps
+## What Works Today vs What Needs Infrastructure
 
-**What works today:**
-- Running single tasks via the CLI
-- Harness loop with tools, gates, budgets, checkpoints
-- Agent definitions with declarative configuration
-- Deterministic verification gates
-- Escalation and human-in-the-loop
+### Works Locally (CLI-first development)
+- ✅ Running single tasks via the CLI (`factory run`)
+- ✅ Harness loop with tools, gates, budgets, checkpoints
+- ✅ Agent definitions with declarative configuration
+- ✅ Deterministic verification gates
+- ✅ Escalation and human-in-the-loop (`factory answer`)
+- ✅ Schema validation and export
+- ✅ GitHub App webhook receiver (can run with ngrok for local testing)
 
-**What's coming:**
-- Temporal-based Supervisor for durable workflows
-- GitHub App for Work Order intake from issues
-- Ephemeral sandbox pods for task isolation
-- Tool Gateway (MCP) for external API access
-- Full end-to-end pipeline from Work Order to merged PR
+### Requires Kubernetes + Temporal (production deployment)
+- ⏳ **Temporal cluster**: Production-grade workflow orchestration with persistence
+  - *Coming in PR #7*: Kubernetes manifests, operations guide
+  - *See upcoming*: `infra/temporal/README.md`, `docs/ops/TEMPORAL_OPERATIONS.md`
+- ⏳ **Sandbox pods**: Isolated task execution with credential separation
+  - *Coming in PR #8*: `SandboxSpawner`, Kubernetes NetworkPolicy, gVisor runtime
+  - *See upcoming*: `factory/sandbox/README.md` for security model and deployment
+- ⏳ **Worker pool**: Autoscaling Temporal workers that spawn sandbox pods
+- ⏳ **End-to-end pipeline**: Work Order → TaskDAG → parallel execution → merged PR
 
-The factory is CLI-first for now. Operator awareness of utilization (e.g., model costs) is left to external tooling and dashboards; it's not covered in this guide.
+### Current Development Workflow
+The factory is **CLI-first**: all core functionality works locally without Kubernetes or Temporal. The in-process Supervisor (`factory/orchestrator.py`) provides the same TaskDAG execution logic that will run in Temporal workflows. This enables rapid iteration and testing without infrastructure dependencies.
+
+**Production deployment** (Kubernetes + Temporal + sandboxes) is integration work after the Phase 2a components land.
 
 ---
 
