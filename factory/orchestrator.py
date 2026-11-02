@@ -1,8 +1,10 @@
 """Supervisor: executes a TaskDAG by running ready tasks in parallel.
 
-This is the in-process scheduler used for local runs and tests. Phase 2 moves
-the same logic into Temporal workflows (AD-1) so it survives restarts; the
-contract stays the same: a callable that runs one Task and returns a TaskResult.
+This is the in-process scheduler used for local runs and tests. It remains
+as the local test harness. Phase 2 moves the same logic into Temporal workflows
+(see factory/temporal_supervisor.py, AD-1) for production use with durability,
+restarts, and human-wait states. The contract stays the same: a callable that
+runs one Task and returns a TaskResult.
 """
 
 from __future__ import annotations
