@@ -1686,12 +1686,8 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
-# Commands that run agents: the API key must not stay in their process environment.
-_AGENT_COMMANDS = {"run", "answer", "sandbox-entry"}
-
-
 def main(argv: list[str] | None = None) -> int:
-    if argv is None and len(sys.argv) > 1 and sys.argv[1] in _AGENT_COMMANDS:
+    if argv is None:  # the console script, not a test: keep the key out of /proc
         from factory.harness.credentials import reexec_without_key
 
         reexec_without_key()
