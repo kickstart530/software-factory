@@ -96,6 +96,17 @@ class SandboxConfig(BaseModel):
         default="factory-sandbox-runner",
         description="Kubernetes service account for sandbox pods",
     )
+    api_key_secret: str = Field(
+        default="factory-secrets",
+        description="Kubernetes Secret (in the sandbox namespace) holding the model API key",
+    )
+    api_key_secret_key: str = Field(
+        default="anthropic-api-key", description="Key within api_key_secret"
+    )
+    entry_command: list[str] = Field(
+        default_factory=lambda: ["factory", "sandbox-entry"],
+        description="Command the sandbox container runs; it prints the TaskResult",
+    )
     labels: dict[str, str] = Field(
         default_factory=lambda: {"app": "factory-sandbox", "managed-by": "temporal"},
         description="Labels to apply to sandbox pods",

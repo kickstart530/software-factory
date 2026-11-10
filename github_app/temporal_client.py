@@ -48,11 +48,14 @@ async def submit_work_order_to_temporal(
                 "id": "impl-1",
                 "work_order_id": work_order_id,
                 "agent": "implementer",
-                "title": work_order["title"],
+                "title": work_order["title"][:200],  # Task.title max length
                 "instructions": work_order["description"],
                 "acceptance_criteria": work_order.get("acceptance_criteria", []),
                 "depends_on": [],
                 "branch": None,
+                "repo": work_order["repo"],
+                "risk_tier": work_order.get("risk_tier", "low"),
+                "tenant_id": work_order.get("tenant_id"),
                 "status": "pending",
             }
         ],

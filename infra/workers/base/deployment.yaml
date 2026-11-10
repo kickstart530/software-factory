@@ -69,12 +69,8 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
-            - name: ANTHROPIC_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: factory-secrets
-                  key: anthropic-api-key
-                  optional: true
+            # No ANTHROPIC_API_KEY: the worker never calls the model. Sandbox pods
+            # read it from the factory-secrets Secret in their own namespace.
           ports:
             - name: metrics
               containerPort: 9090

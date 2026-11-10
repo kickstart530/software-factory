@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
+import re
 import time
+import uuid
 from dataclasses import dataclass
 from typing import Any
 
@@ -13,6 +14,21 @@ from factory.sandbox.config import SandboxConfig
 from factory.schemas import Task, TaskResult, TaskStatus
 
 logger = logging.getLogger(__name__)
+
+# `factory sandbox-entry` prints the harness's TaskResult on one line after this
+# marker; the spawner reads it back from the pod log.
+RESULT_MARKER = "FACTORY_TASK_RESULT "
+
+
+def parse_task_result(logs: str) -> TaskResult | None:
+    """The last TaskResult the sandbox printed, or None if it printed none."""
+    for line in reversed(logs.splitlines()):
+        if line.startswith(RESULT_MARKER):
+            try:
+                return TaskResult.model_validate_json(line[len(RESULT_MARKER) :])
+            except ValueError:
+                return None
+    return None
 
 
 @dataclass
@@ -25,6 +41,7 @@ class SandboxResult:
     logs: str
     duration_seconds: float
     error: str | None = None
+    task_result: TaskResult | None = None
 
 
 class SandboxSpawner:
@@ -102,71 +119,61 @@ class SandboxSpawner:
         pod_manifest = self._create_pod_manifest(task, pod_name)
 
         start_time = time.time()
+        created = False
 
         try:
-            # Create the pod
             await asyncio.to_thread(
                 core_v1.create_namespaced_pod,
                 namespace=self.config.namespace,
                 body=pod_manifest,
             )
+            created = True
             logger.info(f"Pod {pod_name} created in namespace {self.config.namespace}")
 
-            # Wait for the pod to complete, with periodic heartbeats
             result = await self._wait_for_completion(core_v1, pod_name, heartbeat_callback)
 
-            # Fetch logs
             try:
                 logs = await asyncio.to_thread(
                     core_v1.read_namespaced_pod_log,
                     name=pod_name,
                     namespace=self.config.namespace,
-                    tail_lines=10000,  # Last 10k lines
+                    tail_lines=10000,
                 )
             except Exception as e:
                 logger.warning(f"Failed to fetch logs for pod {pod_name}: {e}")
                 logs = f"(log fetch failed: {e})"
-
-            duration = time.time() - start_time
-
-            # Delete the pod (cleanup)
-            await self._delete_pod(core_v1, pod_name)
 
             return SandboxResult(
                 task_id=task.id,
                 pod_name=pod_name,
                 exit_code=result["exit_code"],
                 logs=logs,
-                duration_seconds=duration,
+                duration_seconds=time.time() - start_time,
                 error=result.get("error"),
+                task_result=parse_task_result(logs),
             )
 
         except Exception as e:
             logger.error(f"Sandbox spawn failed for task {task.id}: {e}")
-            # Attempt cleanup
-            with contextlib.suppress(Exception):
-                await self._delete_pod(core_v1, pod_name)
-
             raise RuntimeError(f"Sandbox spawn failed: {e}") from e
 
+        finally:
+            # Only delete a pod this call created: on a failed create the name may
+            # belong to someone else's pod.
+            if created:
+                await self._delete_pod(core_v1, pod_name)
+
     def _pod_name_for_task(self, task: Task) -> str:
-        """Generate a Kubernetes-compliant pod name from a task ID.
+        """A unique, DNS-1123 compliant pod name for one attempt at a task.
 
-        DNS-1123: lowercase alphanumeric, '-' or '.', start/end with alphanumeric,
-        max 253 chars.
+        Task ids repeat across Work Orders (every webhook task is ``impl-1``), so
+        the name combines the Work Order, the task and a random suffix.
         """
-        # Sanitize task ID: replace non-compliant chars with '-'
-        import re
-
-        sanitized = re.sub(r"[^a-z0-9.-]", "-", task.id.lower())
-        # Ensure starts with alphanumeric
-        if not sanitized[0].isalnum():
-            sanitized = "t" + sanitized
-        # Truncate if needed (reserve space for suffix if needed)
-        max_len = 63  # Pod name limit
-        if len(sanitized) > max_len:
-            sanitized = sanitized[:max_len]
-        return sanitized.rstrip("-.")
+        base = re.sub(r"[^a-z0-9-]+", "-", f"{task.work_order_id}-{task.id}".lower())
+        base = base.strip("-")[:54].rstrip("-") or "task"
+        if not base[0].isalnum():
+            base = "t" + base
+        return f"{base}-{uuid.uuid4().hex[:8]}"
 
     def _create_pod_manifest(self, task: Task, pod_name: str) -> dict[str, Any]:
         """Create a Kubernetes pod manifest for the task.
@@ -185,13 +192,26 @@ class SandboxSpawner:
             {"name": "WORK_ORDER_ID", "value": task.work_order_id},
             {"name": "AGENT_NAME", "value": task.agent},
             {"name": "TASK_TITLE", "value": task.title},
+            # The full task, including repo and branch, for `factory sandbox-entry`
+            {"name": "FACTORY_TASK_JSON", "value": task.model_dump_json()},
+            # Read once by the harness, which then re-execs without it in its
+            # environment, so agent commands can't read it from /proc.
+            {
+                "name": "ANTHROPIC_API_KEY",
+                "valueFrom": {
+                    "secretKeyRef": {
+                        "name": self.config.api_key_secret,
+                        "key": self.config.api_key_secret_key,
+                    }
+                },
+            },
             # Clean HOME inside the sandbox
             {"name": "HOME", "value": "/home/sandbox"},
             # Minimal PATH (no host pollution)
             {"name": "PATH", "value": "/usr/local/bin:/usr/bin:/bin"},
             # Disable automatic credential helpers
             {"name": "GIT_TERMINAL_PROMPT", "value": "0"},
-            # TODO: Pass repo URL, branch, credentials (via Secrets Broker) when available
+            # Private repos need a clone token from the Secrets Broker (not wired yet)
         ]
 
         # Volume mounts: writable workspace, read-only everywhere else
@@ -232,6 +252,7 @@ class SandboxSpawner:
             "name": "agent-harness",
             "image": self.config.image.full_name,
             "imagePullPolicy": self.config.image.pull_policy,
+            "command": self.config.entry_command,
             "env": env_vars,
             "volumeMounts": volume_mounts,
             "securityContext": security_context,
@@ -381,26 +402,25 @@ async def run_task_in_sandbox(
     try:
         sandbox_result = await spawner.spawn_and_wait(task, heartbeat_callback)
 
-        # Convert to TaskResult
-        # In production, the sandbox would write a TaskResult JSON to stdout/file
-        # For now, we create a minimal result based on exit code
-        if sandbox_result.exit_code == 0:
-            status = TaskStatus.SUCCEEDED
-            summary = f"Task completed successfully in {sandbox_result.duration_seconds:.1f}s"
-            error = None
-        else:
-            status = TaskStatus.FAILED
-            summary = (
-                f"Task failed with exit code {sandbox_result.exit_code} "
-                f"after {sandbox_result.duration_seconds:.1f}s"
-            )
-            error = sandbox_result.error or f"Exit code {sandbox_result.exit_code}"
+        if sandbox_result.task_result is not None:
+            result = sandbox_result.task_result
+            if result.task_id != task.id:
+                return TaskResult(
+                    task_id=task.id,
+                    status=TaskStatus.FAILED,
+                    error=f"sandbox reported a result for task {result.task_id!r}",
+                )
+            return result
 
+        # No TaskResult printed: the harness never finished, whatever the exit code.
         return TaskResult(
             task_id=task.id,
-            status=status,
-            summary=summary,
-            error=error,
+            status=TaskStatus.FAILED,
+            summary=(
+                f"Sandbox exited with code {sandbox_result.exit_code} after "
+                f"{sandbox_result.duration_seconds:.1f}s without reporting a result"
+            ),
+            error=sandbox_result.error or "sandbox produced no TaskResult",
         )
 
     except Exception as e:

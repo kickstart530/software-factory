@@ -315,3 +315,24 @@ def test_non_json_body_rejected(client):
         headers={"X-GitHub-Event": "issues", "X-Hub-Signature-256": sig},
     )
     assert response.status_code == 400
+
+
+def test_webhook_builds_a_valid_task_dag():
+    from factory.schemas import TaskDAG
+
+    mock_client = MagicMock()
+    mock_client.start_workflow = AsyncMock(return_value=MagicMock(first_execution_run_id="r"))
+    mock_client._task_queue = "q"
+    app = create_webhook_app(
+        temporal_client_factory=lambda: mock_client, webhook_secret="test-secret"
+    )
+    payload = _comment("/factory build")
+    payload["issue"]["title"] = "x" * 300  # longer than Task.title allows
+    payload["repository"]["default_branch"] = "develop"
+    assert _post(app.test_client(), "issue_comment", payload).json["status"] == "submitted"
+
+    dag = TaskDAG.model_validate(mock_client.start_workflow.call_args.kwargs["args"][0])
+    task = dag.tasks[0]
+    assert task.repo.url == "https://github.com/test/repo.git"
+    assert task.repo.base_branch == "develop"
+    assert len(task.title) == 200

@@ -6,7 +6,7 @@ and resource quotas.
 """
 
 from factory.sandbox.config import EgressPolicy, SandboxConfig, SandboxImage
-from factory.sandbox.spawner import SandboxResult, SandboxSpawner
+from factory.sandbox.spawner import SandboxResult, SandboxSpawner, run_task_in_sandbox
 
 __all__ = [
     "SandboxConfig",
@@ -14,4 +14,5 @@ __all__ = [
     "EgressPolicy",
     "SandboxSpawner",
     "SandboxResult",
+    "run_task_in_sandbox",
 ]

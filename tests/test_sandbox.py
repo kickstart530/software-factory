@@ -92,54 +92,27 @@ class TestSandboxConfig:
 
 class TestSandboxSpawner:
     def test_pod_name_for_task(self):
+        import re
+
         from factory.schemas import Task
 
         spawner = SandboxSpawner()
 
-        # Valid task ID
-        task = Task(
-            id="task-001",
-            work_order_id="wo-001",
-            agent="implementer",
-            title="Test",
-            instructions="Do something",
-        )
-        pod_name = spawner._pod_name_for_task(task)
-        assert pod_name == "task-001"
+        def name(task_id, wo="WO-acme-app-12"):
+            task = Task(id=task_id, work_order_id=wo, agent="implementer", title="T",
+                        instructions="x")  # fmt: skip
+            return spawner._pod_name_for_task(task)
 
-        # Task ID with uppercase (should be lowercased)
-        task = Task(
-            id="Task-002",
-            work_order_id="wo-001",
-            agent="implementer",
-            title="Test",
-            instructions="Do something",
-        )
-        pod_name = spawner._pod_name_for_task(task)
-        assert pod_name == "task-002"
+        dns1123 = re.compile(r"^[a-z0-9]([-a-z0-9]*[a-z0-9])?$")
+        for task_id in ["task-001", "Task_002", "_task-003", "a.b", "x" * 120]:
+            pod = name(task_id)
+            assert dns1123.match(pod) and len(pod) <= 63, pod
 
-        # Task ID with invalid chars
-        task = Task(
-            id="task_002",
-            work_order_id="wo-001",
-            agent="implementer",
-            title="Test",
-            instructions="Do something",
-        )
-        pod_name = spawner._pod_name_for_task(task)
-        assert pod_name == "task-002"
-
-        # Task ID starting with non-alphanumeric
-        task = Task(
-            id="_task-003",
-            work_order_id="wo-001",
-            agent="implementer",
-            title="Test",
-            instructions="Do something",
-        )
-        pod_name = spawner._pod_name_for_task(task)
-        assert pod_name.startswith("t")
-        assert pod_name[1:] == "-task-003"
+        assert name("impl-1").startswith("wo-acme-app-12-impl-1-")
+        # Same task id in two Work Orders (every webhook task is impl-1) never collides,
+        # and neither do two attempts at the same task.
+        assert name("impl-1", "WO-a-1") != name("impl-1", "WO-b-2")
+        assert name("impl-1") != name("impl-1")
 
     def test_create_pod_manifest(self):
         from factory.schemas import Task
@@ -191,11 +164,21 @@ class TestSandboxSpawner:
         assert "ALL" in container_sec["capabilities"]["drop"]
 
         # Environment (CRITICAL: clean HOME, minimal PATH)
-        env_map = {e["name"]: e["value"] for e in container["env"]}
+        env_map = {e["name"]: e.get("value") for e in container["env"]}
         assert env_map["HOME"] == "/home/sandbox"
         assert env_map["PATH"] == "/usr/local/bin:/usr/bin:/bin"
         assert env_map["GIT_TERMINAL_PROMPT"] == "0"
         assert env_map["TASK_ID"] == "task-001"
+        assert Task.model_validate_json(env_map["FACTORY_TASK_JSON"]).id == "task-001"
+
+        # The API key comes from a Secret, never a literal value in the manifest
+        key = next(e for e in container["env"] if e["name"] == "ANTHROPIC_API_KEY")
+        assert "value" not in key
+        assert key["valueFrom"]["secretKeyRef"] == {
+            "name": "factory-secrets",
+            "key": "anthropic-api-key",
+        }
+        assert container["command"] == ["factory", "sandbox-entry"]
 
         # Volumes (CRITICAL: no host mounts)
         volumes = spec["volumes"]
