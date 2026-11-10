@@ -196,15 +196,17 @@ def cmd_sandbox_entry(args: argparse.Namespace) -> int:
         "git clone": [*git, "clone", "--depth", "50", "--branch", task.repo.base_branch,
                       task.repo.url, str(workspace)],
         "git checkout": [*git, "-C", str(workspace), "checkout", "-B", branch],
+        # The commit identity goes in the clone's config, not the environment:
+        # agent commands run with a minimal environment that wouldn't carry it.
+        "git config user.name": [*git, "-C", str(workspace), "config", "user.name",
+                                 os.environ.get("FACTORY_GIT_NAME", "software-factory")],
+        "git config user.email": [*git, "-C", str(workspace), "config", "user.email",
+                                  os.environ.get("FACTORY_GIT_EMAIL", "factory@localhost")],
     }  # fmt: skip
     for label, step in steps.items():
         proc = subprocess.run(step, capture_output=True, text=True)
         if proc.returncode != 0:
             return fail(f"{label} failed: {proc.stderr.strip()[-500:]}")
-    os.environ.setdefault("GIT_AUTHOR_NAME", "software-factory")
-    os.environ.setdefault("GIT_AUTHOR_EMAIL", "factory@localhost")
-    os.environ.setdefault("GIT_COMMITTER_NAME", os.environ["GIT_AUTHOR_NAME"])
-    os.environ.setdefault("GIT_COMMITTER_EMAIL", os.environ["GIT_AUTHOR_EMAIL"])
 
     args.workspace = str(workspace)
     try:
@@ -1688,9 +1690,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     if argv is None:  # the console script, not a test: keep the key out of /proc
-        from factory.harness.credentials import reexec_without_key
+        from factory.harness.credentials import harden_process, reexec_without_key
 
         reexec_without_key()
+        harden_process()
     args = build_parser().parse_args(argv)
     return args.func(args)
 

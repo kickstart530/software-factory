@@ -131,13 +131,20 @@ def test_sandbox_entry_clones_branches_and_reports(monkeypatch, tmp_path, origin
                 ["git", "branch", "--show-current"], cwd=ws, capture_output=True, text=True
             ).stdout.strip()
             seen["has_app"] = (ws / "app.py").is_file()
+            # An agent command (minimal environment, no git identity vars) can commit.
+            from factory.harness.tools import ToolContext, builtin_tools
+
+            run = {t.name: t for t in builtin_tools()}["run_command"]
+            ctx = ToolContext(workspace=ws, artifacts_dir=tmp_path / "art")
+            out = run.invoke(ctx, {"command": "echo x > new.txt && git add -A && git commit -qm c"})
+            seen["commit_ok"] = not out.is_error
             return TaskResult(task_id=task.id, status=TaskStatus.SUCCEEDED, summary="done")
 
     monkeypatch.setattr(cli, "_harness", lambda args, task: FakeHarness())
     task = make_task(repo={"url": str(origin), "base_branch": "main"})
     code, result = _entry(monkeypatch, tmp_path, task, capsys)
     assert code == 0 and result.status == TaskStatus.SUCCEEDED
-    assert seen == {"branch": "factory/WO1/T1", "has_app": True}
+    assert seen == {"branch": "factory/WO1/T1", "has_app": True, "commit_ok": True}
 
 
 def test_sandbox_entry_without_key_reports_failure(monkeypatch, tmp_path, origin, capsys):
