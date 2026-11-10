@@ -202,6 +202,23 @@ env_vars.append(
 
 ## Deployment Prerequisites
 
+### 0. Agent-harness image and API key
+
+Sandbox pods run `factory sandbox-entry` from the agent-harness image: it clones
+the task's repository (`Task.repo`), checks out the task branch, runs the harness
+and prints the TaskResult on a `FACTORY_TASK_RESULT ` line, which the spawner
+reads back from the pod log. A pod that exits without printing one is a failure.
+
+```bash
+docker build -f sandbox/agent-harness.Dockerfile -t software-factory/agent-harness:latest .
+kubectl -n factory-sandboxes create secret generic factory-secrets \
+  --from-literal=anthropic-api-key="$ANTHROPIC_API_KEY"
+```
+
+Override the Secret name and key with `SandboxConfig.api_key_secret` /
+`api_key_secret_key`. Only public repositories can be cloned until the Secrets
+Broker supplies clone tokens.
+
 ### 1. Kubernetes Namespace
 
 ```bash

@@ -65,7 +65,7 @@ The webhook receiver needs these environment variables:
 export GITHUB_APP_ID="123456"
 export GITHUB_APP_PRIVATE_KEY_PATH="/path/to/private-key.pem"
 export GITHUB_APP_INSTALLATION_ID="12345678"
-export GITHUB_WEBHOOK_SECRET="your-webhook-secret"
+export GITHUB_WEBHOOK_SECRET="your-webhook-secret"  # required: the receiver won't start without it
 
 # Temporal configuration
 export TEMPORAL_HOST="localhost:7233"  # Temporal server address
@@ -109,8 +109,13 @@ Deploy options:
 
 **Method 2: Comment command**
 1. Create or open an issue
-2. Comment: `/factory build`
+2. Comment: `/factory build` (or `/factory`) as the first line of the comment
 3. The webhook receiver creates a Work Order
+
+Only repository owners, organization members and collaborators can trigger a
+Work Order; `/factory` from anyone else is ignored and logged, and so is
+`/factory` on a pull request. Applying the `factory:build` label already
+requires triage access.
 
 ### What Happens
 
