@@ -292,3 +292,43 @@ def test_experiment_definition_weighted_selection():
     assert "control" in assignments
     assert "treatment" in assignments
     assert assignments["control"] > assignments["treatment"]  # control has higher weight
+
+
+def _exp(sticky_by):
+    return ExperimentConfig(
+        experiments={
+            "e": ExperimentDefinition(
+                enabled=True,
+                tier="frontier",
+                sticky_by=sticky_by,
+                variants={
+                    "a": VariantConfig(weight=50, model="model-a"),
+                    "b": VariantConfig(weight=50, model="model-b"),
+                },
+            )
+        }
+    )
+
+
+@pytest.mark.parametrize("sticky_by", [None, "tenant_id"])
+def test_ab_variant_never_changes_within_a_work_order(model_config, sticky_by):
+    """Without a usable sticky key the Work Order keeps one conversation on one model."""
+    client = AnthropicModelClient(model_config, client=FakeSDK(), experiments=_exp(sticky_by))
+    variants = {
+        client.complete(
+            ModelRequest(
+                "frontier", "s", [{"role": "user", "content": "x"}], [], work_order_id="wo-1"
+            )  # fmt: skip
+        ).variant
+        for _ in range(40)
+    }
+    assert len(variants) == 1
+
+
+def test_ab_zero_total_weight_rejected():
+    with pytest.raises(ValueError, match="sum to 0"):
+        ExperimentDefinition(
+            enabled=True, tier="frontier", variants={"a": VariantConfig(weight=0, model="m")}
+        )
+    with pytest.raises(ValueError):
+        VariantConfig(weight=-1, model="m")

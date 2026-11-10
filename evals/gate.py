@@ -8,9 +8,11 @@ configurations and reports regressions.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+from factory.agents.spec import AgentCatalog
 
 from .replay import GoldenTask, ReplayResult, ReplayRunner
 
@@ -39,10 +41,18 @@ class GateComparison:
     candidate_cost: float
     baseline_results: list[ReplayResult]
     candidate_results: list[ReplayResult]
+    # Differences replay can't evaluate (model routing, prompts): recorded responses
+    # don't change with them, so a clean replay says nothing about them.
+    inconclusive: list[str] = field(default_factory=list)
 
     @property
     def has_regressions(self) -> bool:
         return len(self.regressions) > 0
+
+    @property
+    def blocked(self) -> bool:
+        """The gate blocks on regressions and on changes it could not evaluate."""
+        return self.has_regressions or bool(self.inconclusive)
 
     @property
     def baseline_pass_rate(self) -> float:
@@ -70,8 +80,67 @@ class GateComparison:
             },
             "regressions": self.regressions,
             "improvements": self.improvements,
+            "inconclusive": self.inconclusive,
             "has_regressions": self.has_regressions,
+            "blocked": self.blocked,
         }
+
+
+def _read(path: Path | None) -> str | None:
+    return path.read_text() if path and path.is_file() else None
+
+
+def unreplayable_differences(baseline: ConfigVariant, candidate: ConfigVariant) -> list[str]:
+    """Changes between the variants that replaying recorded responses cannot evaluate."""
+    reasons = []
+    if _read(baseline.models_config) != _read(candidate.models_config):
+        reasons.append("model routing differs (models config): replay reuses recorded responses")
+
+    def prompts(variant: ConfigVariant) -> dict[str, str]:
+        if variant.agents_dir is None:
+            return {}
+        catalog = AgentCatalog(variant.agents_dir)
+        return {spec.name: catalog.system_prompt(spec) for spec in catalog}
+
+    base_prompts, cand_prompts = prompts(baseline), prompts(candidate)
+    for name in sorted(set(base_prompts) | set(cand_prompts)):
+        if base_prompts.get(name) != cand_prompts.get(name):
+            reasons.append(f"system prompt for {name!r} differs: re-record golden tasks with it")
+    if baseline.system_prompts != candidate.system_prompts:
+        reasons.append("system prompt overrides differ: re-record golden tasks with them")
+    return reasons
+
+
+# AgentSpec fields whose effect replay reproduces faithfully, and those it can't:
+# replay stubs tools and defines no gate commands, and recorded responses don't
+# depend on the model tier.
+REPLAYABLE_FIELDS = ("budget", "max_gate_attempts")
+UNREPLAYABLE_FIELDS = ("tools", "gates", "model_tier", "output_schema")
+
+
+def spec_differences(
+    baseline: ConfigVariant, candidate: ConfigVariant
+) -> tuple[dict[str, dict[str, Any]], list[str]]:
+    """(overrides to apply to candidate runs, reasons that can't be evaluated)."""
+    if baseline.agents_dir is None or candidate.agents_dir is None:
+        return {}, []
+    base, cand = AgentCatalog(baseline.agents_dir), AgentCatalog(candidate.agents_dir)
+    overrides: dict[str, dict[str, Any]] = {}
+    reasons = []
+    for name in sorted(set(base.names()) | set(cand.names())):
+        if name not in base.names() or name not in cand.names():
+            reasons.append(f"agent {name!r} added or removed")
+            continue
+        b, c = base[name], cand[name]
+        changed = {f: getattr(c, f) for f in REPLAYABLE_FIELDS if getattr(b, f) != getattr(c, f)}
+        if changed:
+            overrides[name] = changed
+        reasons += [
+            f"{f} for {name!r} differs: replay cannot evaluate it"
+            for f in UNREPLAYABLE_FIELDS
+            if getattr(b, f) != getattr(c, f)
+        ]
+    return overrides, reasons
 
 
 class EvalGate:
@@ -90,6 +159,7 @@ class EvalGate:
         self.golden_tasks = golden_tasks
         self.workspace_root = workspace_root
         self.artifacts_root = artifacts_root
+        self._overrides: dict[str, dict[str, Any]] = {}
 
     def run(self) -> GateComparison:
         """Run both configurations and compare results."""
@@ -98,12 +168,16 @@ class EvalGate:
         print(f"{'=' * 70}\n")
 
         print(f"Running baseline ({self.baseline.name})...")
+        self._overrides, spec_reasons = spec_differences(self.baseline, self.candidate)
+        inconclusive = unreplayable_differences(self.baseline, self.candidate) + spec_reasons
         baseline_results = self._run_variant(self.baseline, "baseline")
 
         print(f"\nRunning candidate ({self.candidate.name})...")
         candidate_results = self._run_variant(self.candidate, "candidate")
 
-        return self._compare_results(baseline_results, candidate_results)
+        comparison = self._compare_results(baseline_results, candidate_results)
+        comparison.inconclusive = inconclusive
+        return comparison
 
     def _run_variant(self, variant: ConfigVariant, variant_id: str) -> list[ReplayResult]:
         """Run golden tasks with a specific configuration variant."""
@@ -112,13 +186,10 @@ class EvalGate:
         workspace.mkdir(parents=True, exist_ok=True)
         artifacts.mkdir(parents=True, exist_ok=True)
 
-        runner = ReplayRunner(workspace, artifacts)
-
-        # If custom system prompts are provided, we need to patch them
-        # For now, replay uses recorded responses so prompt changes don't affect results
-        # This is a limitation we'll document: to test prompt changes, you need
-        # to record new golden tasks with the new prompts
-
+        # Baseline replays golden tasks as recorded; the candidate replays them with
+        # the agent-definition changes replay can evaluate (see spec_differences).
+        overrides = self._overrides if variant is self.candidate else {}
+        runner = ReplayRunner(workspace, artifacts, spec_overrides=overrides)
         results = runner.run_suite(self.golden_tasks)
 
         passed = sum(1 for r in results if r.passed)
@@ -141,6 +212,7 @@ class EvalGate:
             c = candidate_by_id.get(task_id)
 
             if c is None:
+                regressions.append(f"{task_id}: {b.description} (no candidate result)")
                 continue
 
             if b.passed and not c.passed:
@@ -205,10 +277,17 @@ def print_gate_report(comparison: GateComparison) -> None:
         for imp in comparison.improvements:
             print(f"  - {imp}")
 
+    if comparison.inconclusive:
+        print(f"\n? NOT EVALUATED BY REPLAY ({len(comparison.inconclusive)}):")
+        for reason in comparison.inconclusive:
+            print(f"  - {reason}")
+
     print(f"\n{'=' * 70}")
 
     if comparison.has_regressions:
         print("❌ GATE BLOCKED: Regressions detected")
+    elif comparison.inconclusive:
+        print("❌ GATE BLOCKED: Changes replay cannot evaluate (see above)")
     else:
         print("✓ GATE PASSED: No regressions")
 

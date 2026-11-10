@@ -202,3 +202,21 @@ def test_duplicate_submit_in_one_turn_gets_a_result_each(build):
     h2_state = h.deps.checkpoints.load("T1")
     last = h2_state.messages[-1]["content"]
     assert {r["tool_use_id"] for r in last} == {a["id"], b["id"]}
+
+
+def test_cost_uses_the_model_that_actually_served(build, model_config):
+    """An A/B variant or fallback may serve a different, differently priced model."""
+    model_config.pricing["pricey-model"] = {"input": 100.0, "output": 500.0}
+    r1 = reply(FIX)
+    r1.model = "pricey-model"
+    r2 = reply(submit())
+    h, _, _ = build([r1, r2])
+    result = h.run(make_task())
+    # 1000 in + 100 out per turn: pricey turn $0.15, tier-priced turn $0.0015
+    assert abs(result.usage.usd - (0.15 + 0.0015)) < 1e-9
+
+
+def test_tenant_reaches_the_model_request(build):
+    h, model, _ = build([reply(FIX), reply(submit())])
+    h.run(make_task(tenant_id="acme"))
+    assert model.requests[0].tenant_id == "acme"

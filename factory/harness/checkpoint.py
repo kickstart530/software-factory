@@ -32,6 +32,8 @@ class RunState(BaseModel):
     # Gate config captured when the task started; a resume uses this snapshot, never
     # the workspace, so an agent can't relax its own gates mid-task.
     gates_config: dict[str, Any] | None = None
+    # HEAD when the task started: the protected-paths check diffs against it.
+    start_commit: str | None = None
     # Set once the run reaches a terminal status, so a re-run returns it unchanged.
     final_result: dict[str, Any] | None = None
 

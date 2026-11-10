@@ -42,10 +42,13 @@ def _harness(tmp_path, ws, model_config, responses, store):
 
 def test_rewriting_and_committing_gates_does_not_relax_them(tmp_path, workspace, model_config):
     _commit_gates(workspace, STRICT)
+    # A write the command policy can't recognise (no redirect, no write tool name),
+    # so the deeper layers have to hold: the gate snapshot and the protected-paths diff.
     relax = tool_call(
         "run_command",
-        command=f"printf '{LAX}' > .factory/gates.yaml && git -c user.email=a@a "
-        "-c user.name=a commit -qam relax",
+        command="python3 -c \"open('.factory/gates.yaml','w').write("
+        f"bytes.fromhex('{LAX.encode().hex()}').decode())\" && "
+        "git -c user.email=a@a -c user.name=a commit -qam relax",
     )
     store = FileCheckpointStore(tmp_path / "ckpt")
     task = make_task()
@@ -61,7 +64,10 @@ def test_rewriting_and_committing_gates_does_not_relax_them(tmp_path, workspace,
     h2 = _harness(tmp_path, workspace, model_config, [reply(submit()), reply(submit())], store)
     result = h2.run(task)
     assert result.status == TaskStatus.FAILED
-    assert result.gates[0].name == "unit_tests" and not result.gates[0].passed
+    gates = {g.name: g for g in result.gates}
+    assert not gates["unit_tests"].passed  # the snapshot, not the relaxed file, ran
+    assert not gates["protected_paths"].passed  # and changing .factory/ is itself refused
+    assert ".factory/gates.yaml" in gates["protected_paths"].output_tail
 
 
 def test_uncommitted_gate_edits_are_ignored(tmp_path, workspace):

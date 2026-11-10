@@ -1016,16 +1016,19 @@ def cmd_evals_gate(args: argparse.Namespace) -> int:
         print(f"No golden tasks found in {golden_dir}", file=sys.stderr)
         return 1
 
+    # Unset paths mean "the current configuration", so a candidate that only
+    # changes prompts is still compared against the real baseline.
+    default_agents, default_models = Path(args.agents), Path(args.models)
     baseline = ConfigVariant(
         name="baseline",
-        agents_dir=Path(args.baseline_agents) if args.baseline_agents else None,
-        models_config=Path(args.baseline_models) if args.baseline_models else None,
+        agents_dir=Path(args.baseline_agents) if args.baseline_agents else default_agents,
+        models_config=Path(args.baseline_models) if args.baseline_models else default_models,
     )
 
     candidate = ConfigVariant(
         name="candidate",
-        agents_dir=Path(args.candidate_agents) if args.candidate_agents else None,
-        models_config=Path(args.candidate_models) if args.candidate_models else None,
+        agents_dir=Path(args.candidate_agents) if args.candidate_agents else default_agents,
+        models_config=Path(args.candidate_models) if args.candidate_models else default_models,
     )
 
     gate = EvalGate(baseline, candidate, tasks, workspace_root, artifacts_root)
@@ -1036,7 +1039,7 @@ def cmd_evals_gate(args: argparse.Namespace) -> int:
     if args.json:
         save_gate_report(comparison, Path(args.json))
 
-    return 1 if comparison.has_regressions else 0
+    return 1 if comparison.blocked else 0
 
 
 def cmd_evals_replay(args: argparse.Namespace) -> int:
