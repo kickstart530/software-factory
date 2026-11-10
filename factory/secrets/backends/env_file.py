@@ -16,13 +16,24 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from threading import RLock
 from typing import Any
+from urllib.parse import urlparse
 
+from factory.harness.hooks import register_minted_secret
 from factory.secrets.broker import (
     Credential,
     MintRequest,
     SecretsBroker,
     SecretStatus,
+    read_credential_state,
+    write_credential_state,
 )
+
+# Host each provider token may be sent to; a token is never handed out for another host.
+_TOKEN_HOSTS = {
+    "GITHUB_TOKEN": "github.com",
+    "GITLAB_TOKEN": "gitlab.com",
+    "BITBUCKET_TOKEN": "bitbucket.org",
+}
 
 
 class EnvFileBackend(SecretsBroker):
@@ -87,36 +98,26 @@ class EnvFileBackend(SecretsBroker):
                 self._secrets_map[key] = os.environ[key]
 
     def _load_credentials(self) -> None:
-        """Load existing credentials from disk."""
-        if self.credentials_file.exists():
-            try:
-                self._credentials = json.loads(self.credentials_file.read_text())
-            except (json.JSONDecodeError, OSError):
-                self._credentials = {}
+        """Load credential metadata; secret values are never read from disk."""
+        self._credentials, leaked = read_credential_state(self.credentials_file)
+        if leaked:  # migrate state written by older versions that stored secrets
+            self._save_credentials()
 
     def _save_credentials(self) -> None:
-        """Persist credentials to disk."""
-        self.credentials_file.write_text(json.dumps(self._credentials, indent=2))
+        """Persist metadata only (mode 0600); secret values stay in memory."""
+        write_credential_state(self.credentials_file, self._credentials)
 
     def _get_secret_for_tool(self, tool_name: str, repo_url: str) -> str:
-        """Look up the appropriate secret for a tool/repo combination."""
-        # Try tool-specific keys first
+        """Look up the secret for a tool/repo pair. No guessing: unknown pairs fail."""
         if tool_name in self._secrets_map:
             return self._secrets_map[tool_name]
 
-        # Try repo-specific inference
-        if "github.com" in repo_url and "GITHUB_TOKEN" in self._secrets_map:
-            return self._secrets_map["GITHUB_TOKEN"]
-        if "gitlab.com" in repo_url and "GITLAB_TOKEN" in self._secrets_map:
-            return self._secrets_map["GITLAB_TOKEN"]
-        if "bitbucket.org" in repo_url and "BITBUCKET_TOKEN" in self._secrets_map:
-            return self._secrets_map["BITBUCKET_TOKEN"]
+        host = (urlparse(repo_url).hostname or "").lower()
+        for key, token_host in _TOKEN_HOSTS.items():
+            if host == token_host and key in self._secrets_map:
+                return self._secrets_map[key]
 
-        # Fallback: any available token
-        if self._secrets_map:
-            return next(iter(self._secrets_map.values()))
-
-        raise ValueError(f"No secret available for tool '{tool_name}' and repo '{repo_url}'")
+        raise ValueError(f"No secret configured for tool '{tool_name}' and repo '{repo_url}'")
 
     def mint(self, request: MintRequest) -> Credential:
         """Mint a new credential by creating a reference to a static secret."""
@@ -152,6 +153,7 @@ class EnvFileBackend(SecretsBroker):
             }
 
             self._save_credentials()
+            register_minted_secret(secret_value)
             return credential
 
     def get_credential(self, credential_id: str) -> Credential | None:
@@ -189,8 +191,18 @@ class EnvFileBackend(SecretsBroker):
             if cred.status == SecretStatus.REVOKED:
                 raise ValueError(f"Credential {credential_id} has been revoked")
 
-            # Inject the secret into the environment
-            secret_value = data["_secret_value"]
+            secret_value = data.get("_secret_value")
+            if secret_value is None:
+                # Not in memory (minted by an earlier process): re-resolve from the
+                # configured source and check it's still the same secret.
+                secret_value = self._get_secret_for_tool(cred.tool_name, cred.repo_url)
+                if self.compute_fingerprint(secret_value) != cred.fingerprint:
+                    raise ValueError(
+                        f"Credential {credential_id}: the configured secret has changed; "
+                        "mint a new credential"
+                    )
+                data["_secret_value"] = secret_value
+                register_minted_secret(secret_value)
 
             # Use tool-specific environment variable names
             env_var_name = self._env_var_for_tool(cred.tool_name)

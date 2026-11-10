@@ -69,6 +69,9 @@ class HarnessDeps:
     hooks: Hooks = field(default_factory=Hooks)
     tracer: Tracer = field(default_factory=NullTracer)
     tools: ToolRegistry | None = None  # defaults to the built-in tools
+    # factory.control.KillSwitch (or anything with is_paused(tenant_id) -> bool).
+    # Checked before every model call; a paused run stops resumably.
+    kill_switch: Any | None = None
 
 
 class AgentHarness:
@@ -85,7 +88,8 @@ class AgentHarness:
         self.deps = deps
         self.ctx = tool_ctx
         self.risk_tier = risk_tier
-        self.gates = gates or GateRunner.from_workspace(tool_ctx.workspace)
+        self._explicit_gates = gates
+        self.gates = gates or GateRunner()  # resolved per run from the checkpoint snapshot
         registry = deps.tools or ToolRegistry(builtin_tools())
         names = [n for n in spec.tools if n != "submit_result"]
         self.tools = registry.subset(names)
@@ -103,6 +107,7 @@ class AgentHarness:
                 agent=self.spec.name,
                 agent_version=self.spec.version,
                 messages=[{"role": "user", "content": render_task(task, self.spec)}],
+                gates_config=self._snapshot_gates().to_config(),
             )
         elif state.final_result is not None:
             return TaskResult.model_validate(state.final_result)
@@ -124,15 +129,34 @@ class AgentHarness:
         self.deps.tracer.event("escalation.answered", task_id=task.id)
         return self._loop(task, state)
 
+    def _snapshot_gates(self) -> GateRunner:
+        return self._explicit_gates or GateRunner.from_workspace(self.ctx.workspace)
+
     # -- loop ------------------------------------------------------------------
 
     def _loop(self, task: Task, state: RunState) -> TaskResult:
+        if self._explicit_gates is not None:
+            self.gates = self._explicit_gates
+        elif state.gates_config is not None:
+            self.gates = GateRunner.from_config(state.gates_config)
+        else:  # checkpoint from before snapshots existed
+            state.gates_config = self._snapshot_gates().to_config()
+            self.gates = GateRunner.from_config(state.gates_config)
         budget = BudgetTracker(task.budget or self.spec.budget, state.usage)
         tracer = self.deps.tracer
         tier = self.deps.model_config.tiers[self.spec.model_tier]
         price = self.deps.model_config.price(tier.model)
 
         while True:
+            if self.deps.kill_switch is not None and self.deps.kill_switch.is_paused(
+                task.tenant_id
+            ):
+                state.usage = budget.usage
+                tracer.event("kill_switch.paused", task_id=task.id)
+                # Not final: once resumed, run() continues from this checkpoint.
+                return self._result(
+                    task, state, TaskStatus.CANCELLED, error="paused by kill switch", final=False
+                )
             exceeded, dim = budget.state()
             if exceeded is BudgetState.EXCEEDED:
                 state.usage = budget.usage
@@ -358,6 +382,22 @@ class AgentHarness:
             if tool.name != "submit_result"
             else None
         )
+        if (
+            decision is not None
+            and decision.allowed
+            and getattr(decision, "requires_approval", False)
+        ):
+            # No approval flow is wired into the loop yet, so an operation that
+            # needs one is refused rather than silently allowed.
+            reason = getattr(decision, "approval_reason", "") or "operation requires approval"
+            self.deps.tracer.event(
+                "policy.denied", task_id=task.id, tool=tool.name, rule="approval-required"
+            )
+            return ToolOutput(
+                f"Denied by policy: {reason}. Human approval is required; call escalate "
+                "to ask for it.",
+                is_error=True,
+            )
         if decision is None or decision.allowed:
             decision = self.deps.hooks.run_pre(tool, args)
         if decision is not None and not decision.allowed:
@@ -386,6 +426,7 @@ class AgentHarness:
         gates: list[GateResult] | None = None,
         escalation: Escalation | None = None,
         error: str | None = None,
+        final: bool = True,
     ) -> TaskResult:
         result = TaskResult(
             task_id=task.id,
@@ -397,7 +438,7 @@ class AgentHarness:
             escalation=escalation,
             error=error,
         )
-        if status is not TaskStatus.ESCALATED:
+        if final and status is not TaskStatus.ESCALATED:
             state.final_result = result.model_dump(mode="json")
         result.checkpoint_id = self.deps.checkpoints.save(state)
         self.deps.tracer.event("task.finished", task_id=task.id, status=status.value, error=error)

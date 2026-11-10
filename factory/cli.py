@@ -114,6 +114,7 @@ def _harness(args: argparse.Namespace, task: Task) -> AgentHarness:
         model_config=config,
         checkpoints=FileCheckpointStore(state_dir / "checkpoints"),
         tracer=JsonlTracer(state_dir / "traces" / f"{task.id}.jsonl", task_id=task.id),
+        kill_switch=KillSwitch(FileKillSwitchStore(state_dir / "kill_switch")),
     )
     ctx = ToolContext(workspace=workspace, artifacts_dir=state_dir / "artifacts" / task.id)
     return AgentHarness(
@@ -1600,7 +1601,15 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+# Commands that run agents: the API key must not stay in their process environment.
+_AGENT_COMMANDS = {"run", "answer", "sandbox-entry"}
+
+
 def main(argv: list[str] | None = None) -> int:
+    if argv is None and len(sys.argv) > 1 and sys.argv[1] in _AGENT_COMMANDS:
+        from factory.harness.credentials import reexec_without_key
+
+        reexec_without_key()
     args = build_parser().parse_args(argv)
     return args.func(args)
 

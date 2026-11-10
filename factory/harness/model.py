@@ -189,7 +189,9 @@ class AnthropicModelClient:
         if client is None:
             import anthropic
 
-            api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+            from factory.harness.credentials import load_api_key
+
+            api_key = load_api_key()
             if not api_key:
                 raise MissingCredentialsError(
                     "ANTHROPIC_API_KEY is required. In GitHub Actions, map it from "

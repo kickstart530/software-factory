@@ -3,12 +3,45 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import os
 from abc import ABC, abstractmethod
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field
+
+SECRET_KEYS = ("_secret_value",)
+
+
+def write_credential_state(
+    path: os.PathLike[str] | str, credentials: dict[str, dict[str, Any]]
+) -> None:
+    """Persist credential metadata, never secret values, readable only by the owner."""
+    public = {
+        cid: {k: v for k, v in data.items() if k not in SECRET_KEYS}
+        for cid, data in credentials.items()
+    }
+    tmp = f"{path}.tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        json.dump(public, f, indent=2)
+    os.replace(tmp, path)
+
+
+def read_credential_state(path: os.PathLike[str] | str) -> tuple[dict[str, dict[str, Any]], bool]:
+    """Load credential metadata. Returns (credentials, had_secrets_on_disk)."""
+    try:
+        with open(path) as f:
+            data = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return {}, False
+    leaked = any(k in entry for entry in data.values() for k in SECRET_KEYS)
+    for entry in data.values():
+        for k in SECRET_KEYS:
+            entry.pop(k, None)
+    return data, leaked
 
 
 class SecretStatus(StrEnum):
