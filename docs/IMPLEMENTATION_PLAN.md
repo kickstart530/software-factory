@@ -14,8 +14,20 @@ harness is built first and every agent is built on it.
 
 ## Implementation status
 
-| Phase | State | What exists |
-|---|---|---|
+"Built" means the code exists and is tested; a phase is only **Done** once its
+exit criterion (§10) is met on real runs. Reviewed November 2026.
+
+| Phase | State | Built | Still missing |
+|---|---|---|---|
+| 0. Foundations | **Done** (repo side) | ADR-0001..0009, core contracts in `factory/schemas.py` (exported to `schemas/`), CI, Terraform for AWS (EKS, RDS, S3), local kind setup, ops docs. | Cloud environment not yet stood up from the IaC. |
+| 1. Harness MVP | **Built; exit criterion not met** | `factory/harness/`: agent loop, tools, policy, hooks, gates (snapshotted at task start), budgets, checkpoints/resume, escalation, kill switch, OTel exporter, model client. Replay runner and 5 golden tasks. | Exit criterion is 30% of a **50**-task set on the **real** model; there are 5 tasks, replayed from recordings. |
+| 2a. Temporal + GitHub App pilot | **Built; not run on a cluster** | Temporal workflow and activity (tested against Temporal's test server), `factory.worker`, sandbox pods that run `factory sandbox-entry` and report the TaskResult, agent-harness image, webhook receiver gated to repo collaborators. | No end-to-end run on a real cluster yet. Sandboxes clone public repos only (no clone token from the Secrets Broker) and don't push branches or open PRs. Planner isn't invoked: every Work Order is one implementer task. |
+| 2b. Policy & approvals | **Partial** | `RulePolicy`, OPA policy (fails closed), approval service and `factory approve` CLI. Operations that need approval are refused. | The loop doesn't yet pause for an approval and resume on the decision. |
+| 3. Hardening | **Partial** | Security Reviewer and Test Engineer agents, adversarial evals, Secrets Broker (no secrets on disk), budget ledger, cost dashboards, kill switch (honored by harness, Supervisor and workflow), API key kept out of agent-readable environments. | Secrets Broker and budget ledger aren't used at runtime yet. |
+| 4. Full lifecycle | **Partial** | Spec, Architect, Release, SRE and Docs agent definitions; memory lessons with promotion; canary + rollback orchestration. | These agents aren't scheduled by the pipeline yet. |
+| 5. Continuous improvement | **Partial** | Eval gate (`factory evals gate`), A/B routing (sticky per Work Order), golden task generation, per-repo tuning. | The eval gate replays recorded responses, so it can evaluate budget and attempt-limit changes only; prompt and model changes are reported as inconclusive until golden tasks are re-recorded live. |
+
+---|---|---|
 | 0. Foundations | **Complete** | ADR-0001..0009 in [`docs/adr/`](adr/); core contracts in `factory/schemas.py`, exported to `schemas/`; CI workflow. Cloud IaC: Terraform modules for AWS (EKS, RDS, S3) in `infra/terraform/`, local kind environment in `infra/local/`. Hello-world sandbox with OpenTelemetry tracing. Ops documentation in [`docs/ops/`](ops/). |
 | 1. Harness MVP | **Complete** | `factory/harness/`: agent loop, tool registry and sandbox tools, policy, hooks, gates, budgets, checkpoints/resume, escalation, telemetry (JSONL + OpenTelemetry exporter), model client. `evals/`: golden task set (5 tasks), replay runner, CLI integration. 50+ tests on a scripted model. |
 | 2a. Temporal Supervisor + GitHub App pilot | **Complete** | In-process Supervisor (`factory/orchestrator.py`) for local testing. Temporal workflow/activities in `factory/temporal_supervisor.py`. Temporal cluster infrastructure in `infra/temporal/`. Sandbox pod spawner with credential isolation in `factory/sandbox/`. GitHub App webhook receiver (`github_app/`) integrated with Temporal workflow starts. Agent definitions for planner, implementer, reviewer and integrator in `agents/`. End-to-end integration operational; production pipeline ready for pilot repository deployment. |
@@ -351,30 +363,21 @@ TypeScript only for the approval UI.
 
 ## 13. Immediate next steps
 
-**Phases 0–2b: Complete**
+Status per phase is in the table at the top. In priority order:
 
-- **Phase 0**: Infrastructure foundations, cloud IaC (AWS Terraform + local kind), hello-world sandbox, OpenTelemetry pipeline, ops documentation
-- **Phase 1**: Agent harness MVP with loop, tools, policy, gates, budgets, checkpoints, telemetry, evals (5 golden tasks + replay runner)
-- **Phase 2a**: Temporal cluster deployment, sandbox pod spawner with credential isolation, GitHub App webhook receiver, Temporal workflow orchestration, end-to-end Work Order → TaskDAG → execution pipeline
-- **Phase 2b**: OPA-compatible policy engine, human approval service with CLI interface, risk-tier computation (CLI-first per ADR-0009; Slack UI deferred)
+1. **First real end-to-end run.** Deploy the worker and the agent-harness image to the
+   kind cluster (`infra/local/`), label a pilot issue `factory:build`, and follow it
+   through Temporal to a sandbox TaskResult.
+2. **Clone and push credentials.** Mint a task-scoped token with the Secrets Broker for
+   the sandbox's clone, and push the task branch and open a PR from the sandbox.
+3. **Approval wait in the loop.** Pause on `requires_approval`, file an approval
+   request, and resume on the decision (today such operations are refused).
+4. **Runtime budget ledger.** Charge every model call to the tenant ledger and stop
+   work when a tenant is over budget.
+5. **Planner in the pipeline.** Have the webhook run the Planner to produce the
+   TaskDAG instead of a single implementer task.
+6. **Live golden suite.** Grow the golden set toward 50 tasks recorded against the real
+   model, so the Phase 1 exit criterion can be measured and the eval gate can evaluate
+   prompt and model changes.
 
 See [`docs/GETTING_STARTED.md`](GETTING_STARTED.md) for setup and deployment guides.
-
-**Phase 3: Hardening (Complete)**
-
-Security Reviewer + Test Engineer agents deployed. Injection and adversarial evals suite operational. Secrets Broker integrated, multi-tenancy support + budget ledger live, cost dashboards available, kill switch verified, spot instance + pre-emption handling tested. PRs #15–#20 merged to main.
-
-**Phase 4: Full lifecycle (Complete)**
-
-Full lifecycle agents (Spec, Architect, Release, SRE, Docs) with schemas and agent definitions in `factory/agents/` and `factory/schemas.py`; memory lessons with promotion workflow in `factory/memory/`; canary deployment + auto-rollback in `factory/release/`. Delivered in PRs #21 (plan status), #22 (agents + schemas), #24 (memory lessons + promotion), #23 (canary + rollback). Phase status updated in [#26](https://github.com/kickstart530/software-factory/pull/26).
-
-**Phase 5: Continuous improvement (Complete)**
-
-Continuous-improvement infrastructure deployed and operational via CLI:
-
-1. **Eval-gated prompt/model updates** ([#27](https://github.com/kickstart530/software-factory/pull/27)): `factory evals gate` command blocks harness, prompt, and model changes unless golden-suite solve rate improves. Documented in docs/EVAL_GATING.md.
-2. **A/B model routing** ([#28](https://github.com/kickstart530/software-factory/pull/28)): `config/experiments.yaml` declares model tier A/B tests; `factory experiments` CLI manages experiment lifecycle and reports metrics.
-3. **Golden task generation** ([#29](https://github.com/kickstart530/software-factory/pull/29)): `factory golden` command mines merged human PRs for representative tasks, storing them in factory/golden_gen/ for eval suite expansion.
-4. **Per-repo tuning** ([#30](https://github.com/kickstart530/software-factory/pull/30)): `.factory/repo.yaml` configuration file per repository; `factory repo-config` CLI validates and applies repo-specific agent budgets, gates, and tool allowlists.
-
-**Roadmap status:** Phases 0–5 complete. Next work is operational use and dogfooding: applying the factory to real work orders, measuring §9 metrics (first-push CI pass rate, review findings precision, cost per PR, lead time), and iterating on agent prompts, policies, and harness capabilities based on production transcripts and traces.

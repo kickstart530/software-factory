@@ -30,6 +30,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The agent runs shell commands in this checkout; don't leave the
+          # GITHUB_TOKEN in .git/config where `git config` would print it.
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -40,13 +44,18 @@ jobs:
       - name: Run task
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Inputs go through the environment, never into the script text, so a
+          # crafted value can't inject shell commands.
+          TASK_FILE: ${{ inputs.task_file }}
+          WORKSPACE_PATH: ${{ inputs.workspace_path }}
+          RISK_TIER: ${{ inputs.risk_tier }}
         run: |
           mkdir -p .factory-runs
           factory run \
-            --task "${{ inputs.task_file }}" \
-            --workspace "${{ inputs.workspace_path }}" \
+            --task "$TASK_FILE" \
+            --workspace "$WORKSPACE_PATH" \
             --state-dir .factory-runs \
-            --risk-tier "${{ inputs.risk_tier }}"
+            --risk-tier "$RISK_TIER"
 
       - name: Upload artifacts
         if: always()

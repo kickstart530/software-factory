@@ -19,6 +19,7 @@ import subprocess
 import time
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
@@ -28,6 +29,7 @@ from factory.harness.tools import sandbox_env
 from factory.schemas import GateResult
 
 TAIL_CHARS = 4000
+GATES_FILE = ".factory/gates.yaml"
 
 
 class GateCommand(BaseModel):
@@ -118,11 +120,34 @@ class GateRunner:
 
     @classmethod
     def from_workspace(cls, workspace: Path) -> GateRunner:
-        cfg = workspace / ".factory" / "gates.yaml"
-        if not cfg.is_file():
-            return cls()
-        raw = yaml.safe_load(cfg.read_text()) or {}
+        """Gates as committed at HEAD; the working-tree file only outside a git repo.
+
+        Reading the committed version means uncommitted edits by an agent can't
+        change the gates. The harness also snapshots this config into the run's
+        checkpoint at task start, so later commits on the task branch can't either.
+        """
+        proc = subprocess.run(
+            ["git", "show", f"HEAD:{GATES_FILE}"], cwd=workspace, capture_output=True, text=True
+        )
+        if proc.returncode == 0:
+            return cls.from_config(yaml.safe_load(proc.stdout) or {})
+        inside_repo = (
+            subprocess.run(
+                ["git", "rev-parse", "--verify", "HEAD"], cwd=workspace, capture_output=True
+            ).returncode
+            == 0
+        )
+        cfg = workspace / GATES_FILE
+        if inside_repo or not cfg.is_file():
+            return cls()  # a repo with no committed gate config: every required gate fails closed
+        return cls.from_config(yaml.safe_load(cfg.read_text()) or {})
+
+    @classmethod
+    def from_config(cls, raw: dict[str, Any]) -> GateRunner:
         return cls({k: GateCommand.model_validate(v) for k, v in raw.get("gates", {}).items()})
+
+    def to_config(self) -> dict[str, Any]:
+        return {"gates": {k: v.model_dump() for k, v in self.commands.items()}}
 
     def run(self, names: list[str], workspace: Path) -> list[GateResult]:
         return [self.run_one(n, workspace) for n in names]

@@ -282,13 +282,13 @@ def test_service_propose_lesson(service: LessonService):
     assert lesson.status == LessonStatus.CANDIDATE
 
 
-def test_service_propose_requires_provenance_for_automatic_proposal():
+def test_service_propose_requires_provenance_for_automatic_proposal(tmp_path):
     """Test that lessons proposed without run_id are still valid.
 
     Note: Provenance is encouraged but not strictly required to allow
     manual lesson proposals.
     """
-    service = LessonService(FileBackedLessonStore(Path(".test-memory")))
+    service = LessonService(FileBackedLessonStore(tmp_path / "memory"))
     proposal = LessonProposal(text="Manual lesson without provenance")
     lesson = service.propose_lesson(proposal)
     assert lesson.id is not None

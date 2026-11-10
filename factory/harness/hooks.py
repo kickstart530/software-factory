@@ -23,36 +23,35 @@ SECRET_PATTERNS: tuple[tuple[str, str], ...] = (
     (r"cred_[0-9a-f]{24}", "minted-credential-id"),
 )
 
-# Registry of minted secret fingerprints to redact from transcripts
-# Populated by SecretsBroker.mint() calls
-_MINTED_SECRET_FINGERPRINTS: set[str] = set()
+# Secret values minted by the Secrets Broker in this process. Redacted wherever
+# they appear in tool or gate output, whatever their format.
+_MINTED_SECRETS: set[str] = set()
+_MIN_REDACTABLE_LEN = 8  # shorter values would redact ordinary text
 
 
 def find_secrets(text: str) -> list[str]:
-    return [name for pattern, name in SECRET_PATTERNS if re.search(pattern, text)]
+    found = [name for pattern, name in SECRET_PATTERNS if re.search(pattern, text)]
+    if any(secret in text for secret in _MINTED_SECRETS):
+        found.append("minted-credential")
+    return found
 
 
-def register_minted_secret(fingerprint: str) -> None:
-    """Register a minted secret fingerprint for redaction.
+def register_minted_secret(secret_value: str) -> None:
+    """Register a minted secret value so it is redacted if it ever reaches output.
 
-    This should be called by SecretsBroker.mint() to ensure minted
-    secrets are redacted from transcripts if they leak.
+    Called by every SecretsBroker backend when it mints or reloads a credential.
     """
-    _MINTED_SECRET_FINGERPRINTS.add(fingerprint)
+    if len(secret_value) >= _MIN_REDACTABLE_LEN:
+        _MINTED_SECRETS.add(secret_value)
 
 
 def redact_secrets(text: str) -> str:
-    """Redact known secret patterns and minted credential values from text."""
+    """Redact known secret patterns and every minted secret value from text."""
+    # Exact values first, so a pattern match can't split one and leave part visible.
+    for secret in sorted(_MINTED_SECRETS, key=len, reverse=True):
+        text = text.replace(secret, "[REDACTED:minted-credential]")
     for pattern, name in SECRET_PATTERNS:
         text = re.sub(pattern, f"[REDACTED:{name}]", text)
-
-    # Redact any minted secrets by their fingerprints
-    # This catches actual secret values if they somehow leak into context
-    for _fingerprint in _MINTED_SECRET_FINGERPRINTS:
-        # We don't have the original secret here, but the fingerprint helps audit
-        # In practice, secrets should never reach this point
-        pass
-
     return text
 
 

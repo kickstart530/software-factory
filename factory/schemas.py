@@ -107,6 +107,13 @@ class Task(Contract):
         default=None, description="Overrides the agent's default budget when set."
     )
     branch: str | None = None
+    repo: RepoRef | None = Field(
+        default=None,
+        description="Repository to work in. Required to run the task in a sandbox pod.",
+    )
+    risk_tier: RiskTier = Field(
+        default=RiskTier.LOW, description="Inherited from the WorkOrder; drives policy."
+    )
     status: TaskStatus = TaskStatus.PENDING
     tenant_id: str | None = Field(
         default=None, description="Inherited from WorkOrder; used for budget/policy isolation."

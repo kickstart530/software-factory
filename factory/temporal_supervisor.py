@@ -13,12 +13,13 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
-from contextvars import ContextVar
 from datetime import timedelta
 from typing import Any
 
 from temporalio import activity, workflow
 from temporalio.client import Client
+from temporalio.common import RetryPolicy
+from temporalio.exceptions import ApplicationError
 from temporalio.worker import Worker
 
 from factory.schemas import Task, TaskDAG, TaskResult, TaskStatus
@@ -27,22 +28,25 @@ from factory.schemas import Task, TaskDAG, TaskResult, TaskStatus
 # Can be sync or async; async runners receive heartbeat_callback kwarg
 TaskRunner = Callable[[Task], TaskResult] | Callable[[Task, Any], TaskResult]
 
-# Global registry for TaskRunner injection (populated by worker)
-_TASK_RUNNER_REGISTRY: ContextVar[TaskRunner | None] = ContextVar(
-    "_TASK_RUNNER_REGISTRY", default=None
-)
+# Process-wide injection points, set by the worker before it starts polling.
+_task_runner: TaskRunner | None = None
+_kill_switch: Any | None = None  # factory.control.KillSwitch
+
+HEARTBEAT_INTERVAL_S = 30
+PAUSE_RECHECK = timedelta(minutes=1)
+PAUSED_ERROR = "paused by kill switch"
 
 
 def set_task_runner(runner: TaskRunner) -> None:
-    """Set the TaskRunner for the current worker context.
+    """Set the TaskRunner the activity uses. Call once, before the worker runs."""
+    global _task_runner
+    _task_runner = runner
 
-    Must be called by the worker during initialization, before running activities.
 
-    Args:
-        runner: A callable that executes tasks (sync or async).
-                Async runners receive heartbeat_callback as a kwarg.
-    """
-    _TASK_RUNNER_REGISTRY.set(runner)
+def set_kill_switch(kill_switch: Any | None) -> None:
+    """Set the kill switch the activity checks before starting a task."""
+    global _kill_switch
+    _kill_switch = kill_switch
 
 
 # --- Activities ---
@@ -50,159 +54,132 @@ def set_task_runner(runner: TaskRunner) -> None:
 
 @activity.defn(name="run_task")
 async def run_task_activity(task_dict: dict[str, Any]) -> dict[str, Any]:
-    """Activity that executes one task in an ephemeral sandbox pod.
+    """Run one task (normally in an ephemeral sandbox pod) and return its TaskResult.
 
-    Args:
-        task_dict: Task serialized as a dict (Pydantic model_dump)
-
-    Returns:
-        TaskResult serialized as a dict
-
-    This activity spawns an isolated sandbox pod with:
-    - Clean HOME directory (no host credentials)
-    - gVisor runtime isolation
-    - Egress network restrictions per policy
-    - Explicit credential injection (no ~/.ssh, ~/.netrc mounts)
-    - Resource quotas
-
-    The TaskRunner (sandbox spawner) is injected via _TASK_RUNNER_REGISTRY,
-    which the worker populates during initialization.
+    Heartbeats every HEARTBEAT_INTERVAL_S while the task runs, so the workflow's
+    heartbeat timeout only fires when the worker is actually gone. A synchronous
+    runner runs in a thread so it can't block those heartbeats.
     """
     task = Task.model_validate(task_dict)
-
-    # Get the runner from the registry (populated by worker)
-    runner = _TASK_RUNNER_REGISTRY.get()
-    if runner is None:
+    if _task_runner is None:
         raise RuntimeError(
             "TaskRunner not configured. Worker must call set_task_runner() during initialization."
         )
+    if _kill_switch is not None and _kill_switch.is_paused(task.tenant_id):
+        return TaskResult(
+            task_id=task.id, status=TaskStatus.CANCELLED, error=PAUSED_ERROR
+        ).model_dump(mode="json")
 
-    # Heartbeat callback for long-running tasks
-    def heartbeat():
-        activity.heartbeat(f"Running task {task.id}")
+    def heartbeat() -> None:
+        activity.heartbeat(f"running task {task.id}")
 
-    # Run the task (spawns sandbox, waits for completion, streams heartbeats)
-    if asyncio.iscoroutinefunction(runner):
-        result = await runner(task, heartbeat_callback=heartbeat)
+    if asyncio.iscoroutinefunction(_task_runner):
+        work = asyncio.ensure_future(_task_runner(task, heartbeat_callback=heartbeat))
     else:
-        result = runner(task)
-
-    return result.model_dump(mode="json")
+        work = asyncio.ensure_future(asyncio.to_thread(_task_runner, task))
+    while True:
+        done, _ = await asyncio.wait({work}, timeout=HEARTBEAT_INTERVAL_S)
+        if done:
+            break
+        heartbeat()
+    return work.result().model_dump(mode="json")
 
 
 # --- Workflows ---
 
 
+def cancel_unreachable(tasks: dict[str, Task], results: dict[str, TaskResult]) -> None:
+    """Cancel pending tasks downstream of a failed or cancelled task."""
+    dead = {TaskStatus.FAILED, TaskStatus.CANCELLED}
+    changed = True
+    while changed:
+        changed = False
+        for task in tasks.values():
+            if task.status == TaskStatus.PENDING and any(
+                tasks[dep].status in dead for dep in task.depends_on
+            ):
+                task.status = TaskStatus.CANCELLED
+                results[task.id] = TaskResult(
+                    task_id=task.id, status=TaskStatus.CANCELLED, error="an upstream task failed"
+                )
+                changed = True
+
+
+def _describe(error: BaseException) -> str:
+    """Temporal wraps activity errors; include the causes, which hold the real message."""
+    parts = []
+    while error is not None and len(parts) < 4:
+        parts.append(str(error) or type(error).__name__)
+        error = error.__cause__
+    return ": ".join(parts)
+
+
 @workflow.defn(name="execute_task_dag")
 class ExecuteTaskDAGWorkflow:
-    """Workflow that orchestrates a TaskDAG: runs ready tasks in parallel until completion.
+    """Run a TaskDAG durably: ready tasks run in parallel as activities.
 
-    This implements the same scheduling logic as orchestrator.Supervisor.execute(),
-    but durably. The workflow survives worker restarts, supports timeouts, and can
-    wait on human signals (for escalations).
+    Same semantics as orchestrator.Supervisor: a failed or cancelled task cancels
+    its dependents; an escalated task leaves its dependents pending; the workflow
+    returns once nothing is running and nothing more can start. Tasks stopped by
+    the kill switch go back to pending and are retried after PAUSE_RECHECK.
     """
-
-    def __init__(self) -> None:
-        self._results: dict[str, TaskResult] = {}
-        self._running: set[str] = set()
-        self._max_parallel = 4
 
     @workflow.run
     async def run(
         self, dag_dict: dict[str, Any], max_parallel: int = 4
     ) -> dict[str, dict[str, Any]]:
-        """Execute the DAG and return a dict of task_id -> TaskResult.
-
-        Args:
-            dag_dict: TaskDAG serialized as a dict
-            max_parallel: Maximum number of tasks to run concurrently
-
-        Returns:
-            Dictionary mapping task_id to TaskResult (as dicts)
-        """
-        self._max_parallel = max_parallel
-        dag = TaskDAG.model_validate(dag_dict)
+        try:
+            dag = TaskDAG.model_validate(dag_dict)
+        except ValueError as e:
+            # A bad DAG never becomes valid: fail the workflow instead of letting
+            # Temporal retry the workflow task forever.
+            raise ApplicationError(f"invalid TaskDAG: {e}", non_retryable=True) from e
         tasks = dag.by_id()
+        results: dict[str, TaskResult] = {}
+        running: dict[Any, str] = {}  # activity handle -> task id
 
-        # Keep launching tasks until all are terminal
-        while not self._all_terminal(tasks):
-            # Cancel unreachable tasks
-            self._cancel_unreachable(dag, tasks)
-
-            # Find ready tasks and launch them (up to parallel limit)
-            ready = self._get_ready(dag, tasks)
-            available_slots = self._max_parallel - len(self._running)
-
-            # Launch new tasks if we have slots
-            for task in ready[:available_slots]:
+        while True:
+            cancel_unreachable(tasks, results)
+            for task in dag.ready():
+                if len(running) >= max_parallel:
+                    break
                 task.status = TaskStatus.RUNNING
-                self._running.add(task.id)
                 workflow.logger.info(f"Starting task {task.id} (agent: {task.agent})")
-
-                # Launch as a child coroutine (Temporal async activities)
-                workflow.start_activity(
+                handle = workflow.start_activity(
                     run_task_activity,
-                    args=[task.model_dump(mode="json")],
-                    start_to_close_timeout=timedelta(hours=2),  # Generous timeout for one task
-                    heartbeat_timeout=timedelta(minutes=5),  # Expect heartbeats every 5 min
-                    retry_policy=workflow.RetryPolicy(
-                        # Don't auto-retry failed tasks; let Supervisor handle it
-                        maximum_attempts=1
-                    ),
-                    task_queue=workflow.info().task_queue,
+                    task.model_dump(mode="json"),
+                    start_to_close_timeout=timedelta(hours=2),
+                    heartbeat_timeout=timedelta(minutes=5),
+                    # A task's own retries live in the harness; never re-run it blindly.
+                    retry_policy=RetryPolicy(maximum_attempts=1),
                 )
+                running[handle] = task.id
 
-            # Wait for at least one running task to complete
-            if self._running:
-                # In a real implementation, we'd use workflow.wait_condition or a
-                # child workflow to wait for specific task completions. For now,
-                # simulate by awaiting a signal. This is simplified; production
-                # would use proper Temporal child workflows or activities.
-                await workflow.wait_condition(lambda: False, timeout=timedelta(seconds=1))
+            if not running:
+                if any(t.status == TaskStatus.PENDING and t.id in self._paused for t in dag.tasks):
+                    await workflow.sleep(PAUSE_RECHECK)
+                    self._paused.clear()
+                    continue
+                break
 
-        # Return all results as dicts
-        return {tid: result.model_dump(mode="json") for tid, result in self._results.items()}
+            done, _ = await workflow.wait(list(running), return_when=asyncio.FIRST_COMPLETED)
+            for handle in done:
+                tid = running.pop(handle)
+                try:
+                    result = TaskResult.model_validate(handle.result())
+                except Exception as e:  # activity failed or timed out: fail this task only
+                    result = TaskResult(task_id=tid, status=TaskStatus.FAILED, error=_describe(e))
+                if result.status == TaskStatus.CANCELLED and result.error == PAUSED_ERROR:
+                    tasks[tid].status = TaskStatus.PENDING
+                    self._paused.add(tid)
+                    continue
+                tasks[tid].status = result.status
+                results[tid] = result
 
-    def _all_terminal(self, tasks: dict[str, Task]) -> bool:
-        """Check if all tasks are in a terminal state."""
-        terminal = {
-            TaskStatus.SUCCEEDED,
-            TaskStatus.FAILED,
-            TaskStatus.CANCELLED,
-            TaskStatus.ESCALATED,
-        }
-        return all(t.status in terminal for t in tasks.values())
+        return {tid: r.model_dump(mode="json") for tid, r in results.items()}
 
-    def _get_ready(self, dag: TaskDAG, tasks: dict[str, Task]) -> list[Task]:
-        """Get tasks that are ready to run (pending with all deps succeeded)."""
-        done = {t.id for t in tasks.values() if t.status == TaskStatus.SUCCEEDED}
-        return [
-            t
-            for t in tasks.values()
-            if t.status == TaskStatus.PENDING and set(t.depends_on) <= done
-        ]
-
-    def _cancel_unreachable(self, dag: TaskDAG, tasks: dict[str, Task]) -> None:
-        """Cancel pending tasks downstream of a failed or cancelled task."""
-        dead = {TaskStatus.FAILED, TaskStatus.CANCELLED}
-        changed = True
-
-        while changed:
-            changed = False
-            status_map = {t.id: t.status for t in tasks.values()}
-
-            for task in tasks.values():
-                if task.status == TaskStatus.PENDING and any(
-                    status_map[dep] in dead for dep in task.depends_on
-                ):
-                    task.status = TaskStatus.CANCELLED
-                    self._results[task.id] = TaskResult(
-                        task_id=task.id,
-                        status=TaskStatus.CANCELLED,
-                        error="an upstream task failed",
-                    )
-                    workflow.logger.info(f"Cancelled task {task.id} (upstream failure)")
-                    changed = True
+    def __init__(self) -> None:
+        self._paused: set[str] = set()
 
 
 # --- Worker and Client Utilities ---
@@ -212,6 +189,7 @@ async def create_temporal_worker(
     client: Client,
     task_queue: str,
     runner: TaskRunner,
+    kill_switch: Any | None = None,
 ) -> Worker:
     """Create a Temporal worker configured to run TaskDAG workflows.
 
@@ -226,6 +204,7 @@ async def create_temporal_worker(
     """
     # Inject the runner into the registry for activities to access
     set_task_runner(runner)
+    set_kill_switch(kill_switch)
 
     worker = Worker(
         client,

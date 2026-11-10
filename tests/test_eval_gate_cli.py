@@ -2,6 +2,7 @@
 
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -16,7 +17,7 @@ def repo_root():
 def test_eval_gate_cli_help(repo_root):
     """Test that eval gate CLI help works."""
     result = subprocess.run(
-        ["factory", "evals", "gate", "--help"],
+        [sys.executable, "-m", "factory.cli", "evals", "gate", "--help"],
         cwd=repo_root,
         capture_output=True,
         text=True,
@@ -36,7 +37,9 @@ def test_eval_gate_cli_with_identical_configs(tmp_path, repo_root):
 
     result = subprocess.run(
         [
-            "factory",
+            sys.executable,
+            "-m",
+            "factory.cli",
             "evals",
             "gate",
             "--baseline-agents",
@@ -75,7 +78,9 @@ def test_eval_gate_cli_output_format(tmp_path, repo_root):
 
     result = subprocess.run(
         [
-            "factory",
+            sys.executable,
+            "-m",
+            "factory.cli",
             "evals",
             "gate",
             "--baseline-agents",

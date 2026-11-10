@@ -7,6 +7,7 @@ import json
 import sys
 from pathlib import Path
 
+import evals
 from evals import (
     ConfigVariant,
     EvalGate,
@@ -50,11 +51,28 @@ from factory.memory import (
 )
 from factory.release import CanaryOrchestrator, CanaryPlan, CanaryRun, FakeBackend
 from factory.repo_config import EffectiveAgentConfig, RepoConfig
-from factory.schemas import EXPORTED_SCHEMAS, ApprovalDecision, RiskTier, Task
+from factory.schemas import (
+    EXPORTED_SCHEMAS,
+    ApprovalDecision,
+    RiskTier,
+    Task,
+    TaskResult,
+    TaskStatus,
+)
 from factory.secrets import MintRequest, SecretStatus
 from factory.secrets.backends import EnvFileBackend
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+
+def _data_root() -> Path:
+    """Where agents/, config/ and schemas/ live: the checkout, or the copy in the wheel."""
+    checkout = Path(__file__).resolve().parent.parent
+    if (checkout / "agents").is_dir():
+        return checkout
+    return Path(__file__).resolve().parent / "_bundled"
+
+
+REPO_ROOT = _data_root()
+EVALS_ROOT = Path(evals.__file__).resolve().parent
 
 
 def cmd_schemas_export(args: argparse.Namespace) -> int:
@@ -114,10 +132,15 @@ def _harness(args: argparse.Namespace, task: Task) -> AgentHarness:
         model_config=config,
         checkpoints=FileCheckpointStore(state_dir / "checkpoints"),
         tracer=JsonlTracer(state_dir / "traces" / f"{task.id}.jsonl", task_id=task.id),
+        kill_switch=KillSwitch(FileKillSwitchStore(state_dir / "kill_switch")),
     )
     ctx = ToolContext(workspace=workspace, artifacts_dir=state_dir / "artifacts" / task.id)
     return AgentHarness(
-        effective_spec, catalog.system_prompt(spec), deps, ctx, risk_tier=RiskTier(args.risk_tier)
+        effective_spec,
+        catalog.system_prompt(spec),
+        deps,
+        ctx,
+        risk_tier=RiskTier(args.risk_tier) if args.risk_tier else task.risk_tier,
     )
 
 
@@ -141,6 +164,53 @@ def cmd_answer(args: argparse.Namespace) -> int:
     except MissingCredentialsError as e:
         print(f"error: {e}", file=sys.stderr)
         return 2
+
+
+def cmd_sandbox_entry(args: argparse.Namespace) -> int:
+    """Entry point of a sandbox pod: clone, branch, run the harness, report.
+
+    The task comes from FACTORY_TASK_JSON. The TaskResult is printed on one line
+    after RESULT_MARKER for the spawner to read from the pod log; the exit code
+    is 0 whenever a result was reported, whatever its status.
+    """
+    import os
+    import subprocess
+
+    from factory.sandbox.spawner import RESULT_MARKER
+
+    task = Task.model_validate_json(os.environ["FACTORY_TASK_JSON"])
+
+    def report(result: TaskResult) -> int:
+        print(RESULT_MARKER + result.model_dump_json(), flush=True)
+        return 0
+
+    def fail(error: str) -> int:
+        return report(TaskResult(task_id=task.id, status=TaskStatus.FAILED, error=error))
+
+    if task.repo is None:
+        return fail("task has no repo to work in")
+    workspace = Path(args.workspace)
+    branch = task.branch or f"factory/{task.work_order_id}/{task.id}"
+    git = ["git", "-c", "advice.detachedHead=false"]
+    steps = {
+        "git clone": [*git, "clone", "--depth", "50", "--branch", task.repo.base_branch,
+                      task.repo.url, str(workspace)],
+        "git checkout": [*git, "-C", str(workspace), "checkout", "-B", branch],
+    }  # fmt: skip
+    for label, step in steps.items():
+        proc = subprocess.run(step, capture_output=True, text=True)
+        if proc.returncode != 0:
+            return fail(f"{label} failed: {proc.stderr.strip()[-500:]}")
+    os.environ.setdefault("GIT_AUTHOR_NAME", "software-factory")
+    os.environ.setdefault("GIT_AUTHOR_EMAIL", "factory@localhost")
+    os.environ.setdefault("GIT_COMMITTER_NAME", os.environ["GIT_AUTHOR_NAME"])
+    os.environ.setdefault("GIT_COMMITTER_EMAIL", os.environ["GIT_AUTHOR_EMAIL"])
+
+    args.workspace = str(workspace)
+    try:
+        return report(_harness(args, task).run(task))
+    except MissingCredentialsError as e:
+        return fail(str(e))
 
 
 def cmd_approve_list(args: argparse.Namespace) -> int:
@@ -946,16 +1016,19 @@ def cmd_evals_gate(args: argparse.Namespace) -> int:
         print(f"No golden tasks found in {golden_dir}", file=sys.stderr)
         return 1
 
+    # Unset paths mean "the current configuration", so a candidate that only
+    # changes prompts is still compared against the real baseline.
+    default_agents, default_models = Path(args.agents), Path(args.models)
     baseline = ConfigVariant(
         name="baseline",
-        agents_dir=Path(args.baseline_agents) if args.baseline_agents else None,
-        models_config=Path(args.baseline_models) if args.baseline_models else None,
+        agents_dir=Path(args.baseline_agents) if args.baseline_agents else default_agents,
+        models_config=Path(args.baseline_models) if args.baseline_models else default_models,
     )
 
     candidate = ConfigVariant(
         name="candidate",
-        agents_dir=Path(args.candidate_agents) if args.candidate_agents else None,
-        models_config=Path(args.candidate_models) if args.candidate_models else None,
+        agents_dir=Path(args.candidate_agents) if args.candidate_agents else default_agents,
+        models_config=Path(args.candidate_models) if args.candidate_models else default_models,
     )
 
     gate = EvalGate(baseline, candidate, tasks, workspace_root, artifacts_root)
@@ -966,7 +1039,7 @@ def cmd_evals_gate(args: argparse.Namespace) -> int:
     if args.json:
         save_gate_report(comparison, Path(args.json))
 
-    return 1 if comparison.has_regressions else 0
+    return 1 if comparison.blocked else 0
 
 
 def cmd_evals_replay(args: argparse.Namespace) -> int:
@@ -1388,10 +1461,23 @@ def build_parser() -> argparse.ArgumentParser:
         r.add_argument(
             "--state-dir", default=".factory-runs", help="checkpoints, traces, artifacts"
         )
-        r.add_argument("--risk-tier", default="low", choices=[t.value for t in RiskTier])
+        r.add_argument(
+            "--risk-tier",
+            default=None,
+            choices=[t.value for t in RiskTier],
+            help="override the task's risk tier",
+        )
         if name == "answer":
             r.add_argument("--answer", required=True)
         r.set_defaults(func=func)
+
+    se = sub.add_parser(
+        "sandbox-entry",
+        help="(sandbox pods) clone the task's repo, run it, print the TaskResult",
+    )
+    se.add_argument("--workspace", default="/workspace/repo", help="where to clone the repo")
+    se.add_argument("--state-dir", default="/workspace/.factory-runs")
+    se.set_defaults(func=cmd_sandbox_entry, risk_tier=None)
 
     e = sub.add_parser("evals", help="run evaluation suite")
     evals_sub = e.add_subparsers(dest="evals_action", required=True)
@@ -1400,7 +1486,7 @@ def build_parser() -> argparse.ArgumentParser:
     replay = evals_sub.add_parser("replay", help="replay golden tasks")
     replay.add_argument(
         "--golden-dir",
-        default=str(REPO_ROOT / "evals" / "golden"),
+        default=str(EVALS_ROOT / "golden"),
         help="directory with golden task JSON files",
     )
     replay.add_argument(
@@ -1423,7 +1509,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     gate.add_argument(
         "--golden-dir",
-        default=str(REPO_ROOT / "evals" / "golden"),
+        default=str(EVALS_ROOT / "golden"),
         help="directory with golden task JSON files",
     )
     gate.add_argument(
@@ -1468,7 +1554,7 @@ def build_parser() -> argparse.ArgumentParser:
     golden_gen.add_argument("pr_fixture", help="path to PR fixture JSON file")
     golden_gen.add_argument(
         "--candidates-dir",
-        default=str(REPO_ROOT / "evals" / "candidates"),
+        default=str(EVALS_ROOT / "candidates"),
         help="directory for candidate golden tasks",
     )
     golden_gen.add_argument("--agent", help="override inferred agent type")
@@ -1477,7 +1563,7 @@ def build_parser() -> argparse.ArgumentParser:
     golden_list = golden_sub.add_parser("list", help="list candidate golden tasks")
     golden_list.add_argument(
         "--candidates-dir",
-        default=str(REPO_ROOT / "evals" / "candidates"),
+        default=str(EVALS_ROOT / "candidates"),
         help="directory for candidate golden tasks",
     )
     golden_list.add_argument(
@@ -1496,12 +1582,12 @@ def build_parser() -> argparse.ArgumentParser:
     golden_promote.add_argument("--notes", help="review notes")
     golden_promote.add_argument(
         "--candidates-dir",
-        default=str(REPO_ROOT / "evals" / "candidates"),
+        default=str(EVALS_ROOT / "candidates"),
         help="directory for candidate golden tasks",
     )
     golden_promote.add_argument(
         "--golden-dir",
-        default=str(REPO_ROOT / "evals" / "golden"),
+        default=str(EVALS_ROOT / "golden"),
         help="directory for active golden tasks",
     )
     golden_promote.set_defaults(func=cmd_golden_promote)
@@ -1512,7 +1598,7 @@ def build_parser() -> argparse.ArgumentParser:
     golden_reject.add_argument("--reason", required=True, help="reason for rejection")
     golden_reject.add_argument(
         "--candidates-dir",
-        default=str(REPO_ROOT / "evals" / "candidates"),
+        default=str(EVALS_ROOT / "candidates"),
         help="directory for candidate golden tasks",
     )
     golden_reject.set_defaults(func=cmd_golden_reject)
@@ -1601,6 +1687,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    if argv is None:  # the console script, not a test: keep the key out of /proc
+        from factory.harness.credentials import reexec_without_key
+
+        reexec_without_key()
     args = build_parser().parse_args(argv)
     return args.func(args)
 

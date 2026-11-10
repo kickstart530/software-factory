@@ -12,7 +12,9 @@ Invariants:
 from __future__ import annotations
 
 import json
+import subprocess
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from factory.agents.spec import AgentSpec
@@ -21,7 +23,13 @@ from factory.harness.checkpoint import CheckpointStore, RunState
 from factory.harness.gates import GateRunner
 from factory.harness.hooks import Hooks
 from factory.harness.model import ModelClient, ModelConfig, ModelRequest
-from factory.harness.policy import CallContext, Policy, RulePolicy
+from factory.harness.policy import (
+    DEFAULT_PROTECTED_PATHS,
+    CallContext,
+    Policy,
+    RulePolicy,
+    protected_path_violations,
+)
 from factory.harness.telemetry import NullTracer, Tracer
 from factory.harness.tools import (
     ToolContext,
@@ -69,6 +77,9 @@ class HarnessDeps:
     hooks: Hooks = field(default_factory=Hooks)
     tracer: Tracer = field(default_factory=NullTracer)
     tools: ToolRegistry | None = None  # defaults to the built-in tools
+    # factory.control.KillSwitch (or anything with is_paused(tenant_id) -> bool).
+    # Checked before every model call; a paused run stops resumably.
+    kill_switch: Any | None = None
 
 
 class AgentHarness:
@@ -85,7 +96,8 @@ class AgentHarness:
         self.deps = deps
         self.ctx = tool_ctx
         self.risk_tier = risk_tier
-        self.gates = gates or GateRunner.from_workspace(tool_ctx.workspace)
+        self._explicit_gates = gates
+        self.gates = gates or GateRunner()  # resolved per run from the checkpoint snapshot
         registry = deps.tools or ToolRegistry(builtin_tools())
         names = [n for n in spec.tools if n != "submit_result"]
         self.tools = registry.subset(names)
@@ -103,6 +115,8 @@ class AgentHarness:
                 agent=self.spec.name,
                 agent_version=self.spec.version,
                 messages=[{"role": "user", "content": render_task(task, self.spec)}],
+                gates_config=self._snapshot_gates().to_config(),
+                start_commit=_git(self.ctx.workspace, "rev-parse", "HEAD"),
             )
         elif state.final_result is not None:
             return TaskResult.model_validate(state.final_result)
@@ -124,15 +138,60 @@ class AgentHarness:
         self.deps.tracer.event("escalation.answered", task_id=task.id)
         return self._loop(task, state)
 
+    def _protected_paths_gate(self, state: RunState) -> list[GateResult]:
+        """Deterministic check that the task's changes stay out of protected paths.
+
+        Shell commands can reach any file however the policy inspects them, so the
+        authoritative check is the diff itself: everything changed since the task
+        started, committed or not, including new files.
+        """
+        if not state.start_commit:
+            return []
+        ws = self.ctx.workspace
+        changed = set((_git(ws, "diff", "--name-only", state.start_commit) or "").splitlines())
+        changed |= set((_git(ws, "ls-files", "--others", "--exclude-standard") or "").splitlines())
+        violations = protected_path_violations(
+            sorted(p for p in changed if p), self.risk_tier, _protected_paths(self.deps.policy)
+        )
+        if not violations:
+            return []
+        return [
+            GateResult(
+                name="protected_paths",
+                passed=False,
+                output_tail="These changes need a higher-risk Work Order; revert them or "
+                "escalate:\n" + "\n".join(violations),
+            )
+        ]
+
+    def _snapshot_gates(self) -> GateRunner:
+        return self._explicit_gates or GateRunner.from_workspace(self.ctx.workspace)
+
     # -- loop ------------------------------------------------------------------
 
     def _loop(self, task: Task, state: RunState) -> TaskResult:
+        if self._explicit_gates is not None:
+            self.gates = self._explicit_gates
+        elif state.gates_config is not None:
+            self.gates = GateRunner.from_config(state.gates_config)
+        else:  # checkpoint from before snapshots existed
+            state.gates_config = self._snapshot_gates().to_config()
+            self.gates = GateRunner.from_config(state.gates_config)
         budget = BudgetTracker(task.budget or self.spec.budget, state.usage)
         tracer = self.deps.tracer
         tier = self.deps.model_config.tiers[self.spec.model_tier]
         price = self.deps.model_config.price(tier.model)
 
         while True:
+            if self.deps.kill_switch is not None and self.deps.kill_switch.is_paused(
+                task.tenant_id
+            ):
+                state.usage = budget.usage
+                tracer.event("kill_switch.paused", task_id=task.id)
+                # Not final: once resumed, run() continues from this checkpoint.
+                return self._result(
+                    task, state, TaskStatus.CANCELLED, error="paused by kill switch", final=False
+                )
             exceeded, dim = budget.state()
             if exceeded is BudgetState.EXCEEDED:
                 state.usage = budget.usage
@@ -146,10 +205,13 @@ class AgentHarness:
                     messages=state.messages,
                     tools=self.tools.definitions(),
                     work_order_id=state.work_order_id,
+                    tenant_id=task.tenant_id,
                 )
             )
+            # Price what was actually served: an A/B variant or a fallback model
+            # can differ from the tier's default.
             budget.record_model_call(
-                price,
+                self.deps.model_config.price(response.model) or price,
                 response.input_tokens,
                 response.output_tokens,
                 response.cache_read_tokens,
@@ -282,7 +344,9 @@ class AgentHarness:
         gate_results: list[GateResult] = []
         if submit:
             call, out = submit
-            gate_results = self.gates.run(self.spec.gates, self.ctx.workspace)
+            gate_results = self._protected_paths_gate(state) + self.gates.run(
+                self.spec.gates, self.ctx.workspace
+            )
             for g in gate_results:
                 tracer.event("gate", task_id=task.id, gate=g.name, passed=g.passed)
             if all(g.passed for g in gate_results):
@@ -358,6 +422,22 @@ class AgentHarness:
             if tool.name != "submit_result"
             else None
         )
+        if (
+            decision is not None
+            and decision.allowed
+            and getattr(decision, "requires_approval", False)
+        ):
+            # No approval flow is wired into the loop yet, so an operation that
+            # needs one is refused rather than silently allowed.
+            reason = getattr(decision, "approval_reason", "") or "operation requires approval"
+            self.deps.tracer.event(
+                "policy.denied", task_id=task.id, tool=tool.name, rule="approval-required"
+            )
+            return ToolOutput(
+                f"Denied by policy: {reason}. Human approval is required; call escalate "
+                "to ask for it.",
+                is_error=True,
+            )
         if decision is None or decision.allowed:
             decision = self.deps.hooks.run_pre(tool, args)
         if decision is not None and not decision.allowed:
@@ -386,6 +466,7 @@ class AgentHarness:
         gates: list[GateResult] | None = None,
         escalation: Escalation | None = None,
         error: str | None = None,
+        final: bool = True,
     ) -> TaskResult:
         result = TaskResult(
             task_id=task.id,
@@ -397,11 +478,24 @@ class AgentHarness:
             escalation=escalation,
             error=error,
         )
-        if status is not TaskStatus.ESCALATED:
+        if final and status is not TaskStatus.ESCALATED:
             state.final_result = result.model_dump(mode="json")
         result.checkpoint_id = self.deps.checkpoints.save(state)
         self.deps.tracer.event("task.finished", task_id=task.id, status=status.value, error=error)
         return result
+
+
+def _git(workspace: Path, *args: str) -> str | None:
+    proc = subprocess.run(["git", *args], cwd=workspace, capture_output=True, text=True)
+    return proc.stdout.strip() if proc.returncode == 0 else None
+
+
+def _protected_paths(policy: Any) -> dict[RiskTier, tuple[str, ...]]:
+    for candidate in (policy, getattr(policy, "rule_policy", None)):
+        paths = getattr(candidate, "protected_paths", None)
+        if paths is not None:
+            return paths
+    return DEFAULT_PROTECTED_PATHS
 
 
 def _tool_result(tool_use_id: str, content: str, is_error: bool = False) -> dict[str, Any]:

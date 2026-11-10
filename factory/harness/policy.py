@@ -49,8 +49,47 @@ DEFAULT_DENIED_COMMANDS: tuple[tuple[str, str], ...] = (
 
 DEFAULT_PROTECTED_PATHS: dict[RiskTier, tuple[str, ...]] = {
     # Paths an agent may write only when the Work Order's risk tier is at least this high.
-    RiskTier.HIGH: (r"^\.github/workflows/", r"(^|/)Dockerfile$", r"^infra/", r"(^|/)migrations/"),
+    RiskTier.HIGH: (
+        r"^\.github/workflows/",
+        r"(^|/)Dockerfile$",
+        r"^infra/",
+        r"(^|/)migrations/",
+        r"^\.factory/",  # gate and repo config: the rules the agent is judged by
+    ),
 }
+
+# Signs that a shell command writes to the files it names. The command check is
+# only a first line of defence (shell can always be obfuscated); the harness also
+# diffs the branch for protected paths on submit (see protected_path_violations).
+_WRITE_INDICATORS = re.compile(
+    r"(?<![0-9&])>|"  # redirect into a file (not 2>&1)
+    r"\b(tee|mv|cp|rm|rmdir|touch|truncate|ln|chmod|chown|install|mkdir|dd|patch)\b|"
+    r"\b(sed|perl)\b[^|;&]*\s-[a-z]*i|"
+    r"\bgit\s+(rm|mv|apply|am|restore|checkout\s+\S*\s*--)\b|"
+    r"\b(vi|vim|nvim|nano|emacs|ed|edit|code)\b|"  # editors
+    r"\b(terraform|tofu)\s+(apply|destroy|import)\b|\bkubectl\s+(apply|delete|replace)\b"
+)
+
+
+def _literal(pattern: str) -> str:
+    """The plain path a protected-path regex names, e.g. ``^\\.factory/`` -> ``.factory``."""
+    return pattern.replace("(^|/)", "").replace("\\.", ".").strip("^$").strip("/")
+
+
+def protected_path_violations(
+    paths: list[str], risk_tier: RiskTier, protected: dict[RiskTier, tuple[str, ...]]
+) -> list[str]:
+    """The paths in ``paths`` this risk tier may not change."""
+    out = []
+    for path in paths:
+        for min_tier, patterns in protected.items():
+            if _TIER_ORDER.index(risk_tier) >= _TIER_ORDER.index(min_tier):
+                continue
+            if any(re.search(p, path) for p in patterns):
+                out.append(f"{path} (needs a {min_tier} risk Work Order)")
+                break
+    return out
+
 
 _TIER_ORDER = [RiskTier.LOW, RiskTier.MEDIUM, RiskTier.HIGH]
 
@@ -75,14 +114,13 @@ class RulePolicy:
             for pattern, rule in self.denied_commands:
                 if re.search(pattern, cmd):
                     return PolicyDecision(False, f"command denied by policy ({rule})", rule)
-            # P0 fix: protected-path rules must apply to run_command shell escapes
-            for min_tier, patterns in self.protected_paths.items():
+            # Protected paths may be read freely; deny commands that look like writes.
+            writes = bool(_WRITE_INDICATORS.search(cmd))
+            for min_tier, patterns in self.protected_paths.items() if writes else ():
                 if _TIER_ORDER.index(ctx.risk_tier) >= _TIER_ORDER.index(min_tier):
                     continue
                 for pattern in patterns:
-                    # For commands, extract key path fragments and check if they appear
-                    # Strip regex anchors and special chars to get the core path
-                    core_path = re.sub(r"[\\^$().|]", "", pattern).strip("/")
+                    core_path = _literal(pattern)
                     if core_path and core_path in cmd:
                         return PolicyDecision(
                             False,

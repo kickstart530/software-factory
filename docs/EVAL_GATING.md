@@ -1,6 +1,6 @@
 # Eval Gating: Testing Prompt and Model Changes
 
-Eval gating allows you to test prompt and model routing changes against the golden eval suite **before merging them**, ensuring that changes don't introduce regressions.
+Eval gating runs the golden eval suite against a baseline and a candidate configuration **before merging**, and blocks on regressions. Because the suite replays recorded model responses, prompt and model changes are reported as inconclusive (and block) until golden tasks are re-recorded with them; see [What Gets Gated](#what-gets-gated).
 
 ## Overview
 
@@ -218,11 +218,20 @@ This is by design: golden tasks test deterministic harness behavior. For testing
 
 ### What Gets Gated
 
-The eval gate tests:
-- ✅ Agent configuration changes (tool sets, budgets, gates)
-- ✅ Model routing changes (tier assignments, model IDs)
-- ✅ Harness behavior changes
-- ⚠️  Prompt changes (limited: tests harness consistency, not prompt quality)
+Replay reuses recorded model responses, so the gate evaluates only what doesn't
+depend on them, and blocks on everything else rather than passing silently:
+
+| Change in the candidate | Gate behavior |
+|---|---|
+| Agent `budget`, `max_gate_attempts` | Replayed with the candidate's values; regressions block |
+| Harness code | Replayed (both sides run the current code); regressions block |
+| System prompts | **Inconclusive, blocks**: re-record golden tasks with the new prompt |
+| Model routing (`config/models.yaml`) | **Inconclusive, blocks**: re-record golden tasks with the new model |
+| Agent `tools`, `gates`, `model_tier`, `output_schema` | **Inconclusive, blocks**: replay stubs tools and defines no gate commands |
+| A golden task missing from the candidate run | Counts as a regression |
+
+Unset `--baseline-*` / `--candidate-*` paths default to the current `agents/` and
+`config/models.yaml`. The JSON report has `inconclusive` and `blocked` fields.
 
 ### When to Run the Gate
 

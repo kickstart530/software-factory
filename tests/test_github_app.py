@@ -144,6 +144,7 @@ def test_webhook_issue_comment_factory_command(client):
         "comment": {
             "body": "/factory build",
             "user": {"login": "testuser"},
+            "author_association": "MEMBER",
         },
         "repository": {
             "full_name": "test/repo",
@@ -247,3 +248,91 @@ def test_webhook_with_temporal_client():
     assert call_args[0][0] == "execute_task_dag"
     assert call_args[1]["id"] == "factory-WO-test-repo-789"
     assert call_args[1]["task_queue"] == "test-queue"
+
+
+def _post(client, event, payload):
+    body = json.dumps(payload).encode()
+    sig = "sha256=" + hmac.new(b"test-secret", body, hashlib.sha256).hexdigest()
+    return client.post(
+        "/webhooks/github",
+        data=body,
+        headers={
+            "X-GitHub-Event": event,
+            "X-Hub-Signature-256": sig,
+            "Content-Type": "application/json",
+        },
+    )
+
+
+def _comment(body, association="MEMBER", on_pr=False):
+    issue = {"number": 7, "title": "t", "body": "b", "user": {"login": "u"}}
+    if on_pr:
+        issue["pull_request"] = {"url": "https://api.github.com/repos/test/repo/pulls/7"}
+    return {
+        "action": "created",
+        "issue": issue,
+        "comment": {"body": body, "user": {"login": "u"}, "author_association": association},
+        "repository": {"full_name": "test/repo", "clone_url": "https://github.com/test/repo.git"},
+    }
+
+
+@pytest.mark.parametrize("association", ["NONE", "CONTRIBUTOR", "FIRST_TIME_CONTRIBUTOR"])
+def test_factory_command_from_outsider_is_ignored(client, association):
+    response = _post(client, "issue_comment", _comment("/factory build", association))
+    assert response.status_code == 200
+    assert response.json["status"] == "ignored"
+
+
+@pytest.mark.parametrize("body", ["/factoryx", "/factory destroy", "> /factory build", "hi"])
+def test_only_exact_factory_commands_trigger(client, body):
+    response = _post(client, "issue_comment", _comment(body))
+    assert response.json == {"message": "received"}
+
+
+def test_factory_command_on_pull_request_is_ignored(client):
+    response = _post(client, "issue_comment", _comment("/factory", on_pr=True))
+    assert response.json == {"message": "received"}
+
+
+def test_command_with_trailing_text_on_later_lines_triggers(client):
+    response = _post(client, "issue_comment", _comment("/factory build\nplease"))
+    assert response.json["status"] == "accepted"
+
+
+def test_receiver_refuses_to_start_without_secret():
+    with pytest.raises(ValueError, match="webhook_secret is required"):
+        create_webhook_app(webhook_secret=None)
+    with pytest.raises(ValueError):
+        create_webhook_app(webhook_secret="")
+
+
+def test_non_json_body_rejected(client):
+    body = b"not json"
+    sig = "sha256=" + hmac.new(b"test-secret", body, hashlib.sha256).hexdigest()
+    response = client.post(
+        "/webhooks/github",
+        data=body,
+        headers={"X-GitHub-Event": "issues", "X-Hub-Signature-256": sig},
+    )
+    assert response.status_code == 400
+
+
+def test_webhook_builds_a_valid_task_dag():
+    from factory.schemas import TaskDAG
+
+    mock_client = MagicMock()
+    mock_client.start_workflow = AsyncMock(return_value=MagicMock(first_execution_run_id="r"))
+    mock_client._task_queue = "q"
+    app = create_webhook_app(
+        temporal_client_factory=lambda: mock_client, webhook_secret="test-secret"
+    )
+    payload = _comment("/factory build")
+    payload["issue"]["title"] = "x" * 300  # longer than Task.title allows
+    payload["repository"]["default_branch"] = "develop"
+    assert _post(app.test_client(), "issue_comment", payload).json["status"] == "submitted"
+
+    dag = TaskDAG.model_validate(mock_client.start_workflow.call_args.kwargs["args"][0])
+    task = dag.tasks[0]
+    assert task.repo.url == "https://github.com/test/repo.git"
+    assert task.repo.base_branch == "develop"
+    assert len(task.title) == 200

@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any, Literal, Protocol
 
 import yaml
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from factory.harness.budget import Price
 
@@ -42,7 +42,7 @@ class VariantConfig(BaseModel):
     """One variant in an A/B experiment."""
 
     model_config = ConfigDict(extra="forbid")
-    weight: int
+    weight: int = Field(ge=0)
     model: str
     effort: str = "high"
 
@@ -56,17 +56,22 @@ class ExperimentDefinition(BaseModel):
     sticky_by: Literal["work_order_id", "tenant_id"] | None = None
     variants: dict[str, VariantConfig]
 
+    @model_validator(mode="after")
+    def _has_weight(self) -> ExperimentDefinition:
+        if self.variants and sum(v.weight for v in self.variants.values()) <= 0:
+            raise ValueError(f"experiment for tier {self.tier}: variant weights sum to 0")
+        return self
+
     def select_variant(self, assignment_key: str | None) -> tuple[str, VariantConfig]:
         """Select a variant based on assignment key and weights.
 
-        Returns (variant_name, variant_config). If sticky_by is set and
-        assignment_key is provided, uses deterministic hashing. Otherwise
-        uses weighted random selection (which requires seeding externally).
+        Returns (variant_name, variant_config). With an assignment key the choice
+        is a deterministic hash of it; without one, weighted random.
         """
         if not self.variants:
             raise ValueError(f"experiment for tier {self.tier} has no variants")
 
-        if self.sticky_by and assignment_key:
+        if assignment_key:
             # Deterministic sticky assignment via hash
             hash_input = f"{self.tier}:{assignment_key}".encode()
             hash_val = int(hashlib.sha256(hash_input).hexdigest(), 16)
@@ -189,7 +194,9 @@ class AnthropicModelClient:
         if client is None:
             import anthropic
 
-            api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+            from factory.harness.credentials import load_api_key
+
+            api_key = load_api_key()
             if not api_key:
                 raise MissingCredentialsError(
                     "ANTHROPIC_API_KEY is required. In GitHub Actions, map it from "
@@ -217,11 +224,14 @@ class AnthropicModelClient:
         if active:
             experiment_id, experiment = active
             # Determine sticky assignment key based on experiment config
+            # One conversation must stay on one variant: thinking blocks and the
+            # prompt cache are tied to the model, and switching mid-task mixes the
+            # arms. So when the configured key is missing (or none is configured),
+            # fall back to the Work Order; random only for one-off calls.
             assignment_key: str | None = None
-            if experiment.sticky_by == "work_order_id":
-                assignment_key = request.work_order_id
-            elif experiment.sticky_by == "tenant_id":
+            if experiment.sticky_by == "tenant_id":
                 assignment_key = request.tenant_id
+            assignment_key = assignment_key or request.work_order_id
 
             variant_name, variant = experiment.select_variant(assignment_key)
             model = variant.model

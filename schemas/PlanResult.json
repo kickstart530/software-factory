@@ -127,6 +127,34 @@
       "title": "Budget",
       "type": "object"
     },
+    "RepoRef": {
+      "additionalProperties": false,
+      "properties": {
+        "url": {
+          "title": "Url",
+          "type": "string"
+        },
+        "base_branch": {
+          "default": "main",
+          "title": "Base Branch",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "title": "RepoRef",
+      "type": "object"
+    },
+    "RiskTier": {
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "title": "RiskTier",
+      "type": "string"
+    },
     "Task": {
       "additionalProperties": false,
       "description": "One independently verifiable step, executed by one agent in one sandbox.",
@@ -200,6 +228,23 @@
           ],
           "default": null,
           "title": "Branch"
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RepoRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Repository to work in. Required to run the task in a sandbox pod."
+        },
+        "risk_tier": {
+          "$ref": "#/$defs/RiskTier",
+          "default": "low",
+          "description": "Inherited from the WorkOrder; drives policy."
         },
         "status": {
           "$ref": "#/$defs/TaskStatus",

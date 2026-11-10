@@ -15,6 +15,12 @@ from flask import Flask, jsonify, request
 
 logger = logging.getLogger(__name__)
 
+# Commenters allowed to start factory work. Anyone else (including anyone on the
+# internet, on a public repo) is ignored: a Work Order spends money and runs an
+# agent on the issue text, so starting one needs write-level standing in the repo.
+TRUSTED_ASSOCIATIONS = frozenset({"OWNER", "MEMBER", "COLLABORATOR"})
+FACTORY_COMMANDS = frozenset({"/factory", "/factory build"})
+
 
 def verify_signature(payload: bytes, signature: str, secret: str) -> bool:
     """Verify GitHub webhook signature.
@@ -85,13 +91,23 @@ class WebhookReceiver:
             return None
 
         comment = payload.get("comment", {})
-        body = comment.get("body", "").strip()
+        # The command must be the whole first line, so "/factoryx" or a quote of
+        # someone else's command doesn't trigger a run.
+        first_line = comment.get("body", "").strip().splitlines()[:1]
+        if not first_line or " ".join(first_line[0].split()) not in FACTORY_COMMANDS:
+            return None
 
-        # Check for /factory command
-        if body.startswith("/factory build") or body.startswith("/factory"):
-            return await self._submit_work_order_from_issue(payload)
+        if payload.get("issue", {}).get("pull_request"):
+            logger.info("Ignoring /factory on a pull request; only issues start Work Orders")
+            return None
 
-        return None
+        association = comment.get("author_association", "NONE")
+        if association not in TRUSTED_ASSOCIATIONS:
+            login = comment.get("user", {}).get("login", "unknown")
+            logger.warning(f"Ignoring /factory from {login} (author_association={association})")
+            return {"status": "ignored", "reason": "commenter is not a repository collaborator"}
+
+        return await self._submit_work_order_from_issue(payload)
 
     def handle_pull_request(self, payload: dict[str, Any]) -> dict[str, Any] | None:
         """Handle pull request events.
@@ -225,11 +241,12 @@ def create_webhook_app(
 
     app = Flask(__name__)
 
-    # For Phase 2a, allow running without Temporal (logs only)
-    receiver = WebhookReceiver(
-        temporal_client_factory or (lambda: None),
-        webhook_secret or "dev-secret-change-in-production",
-    )
+    if not webhook_secret:
+        # Without a secret anyone could forge webhooks and start Work Orders.
+        raise ValueError("webhook_secret is required (set GITHUB_WEBHOOK_SECRET)")
+
+    # Temporal is optional: without it the receiver only logs (Phase 2a pilot)
+    receiver = WebhookReceiver(temporal_client_factory or (lambda: None), webhook_secret)
 
     @app.route("/webhooks/github", methods=["POST"])
     def github_webhook():
@@ -242,7 +259,9 @@ def create_webhook_app(
 
         # Parse event
         event_type = request.headers.get("X-GitHub-Event", "")
-        payload = request.get_json()
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            return jsonify({"error": "Expected a JSON object"}), 400
 
         logger.info(f"Received {event_type} event")
 

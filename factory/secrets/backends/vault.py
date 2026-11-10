@@ -22,11 +22,14 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from factory.harness.hooks import register_minted_secret
 from factory.secrets.broker import (
     Credential,
     MintRequest,
     SecretsBroker,
     SecretStatus,
+    read_credential_state,
+    write_credential_state,
 )
 
 
@@ -67,16 +70,14 @@ class VaultBackend(SecretsBroker):
         self._load_credentials()
 
     def _load_credentials(self) -> None:
-        """Load credential metadata from local state."""
-        if self.credentials_file.exists():
-            try:
-                self._credentials = json.loads(self.credentials_file.read_text())
-            except (json.JSONDecodeError, OSError):
-                self._credentials = {}
+        """Load credential metadata; tokens are never read from disk."""
+        self._credentials, leaked = read_credential_state(self.credentials_file)
+        if leaked:  # migrate state written by older versions that stored tokens
+            self._save_credentials()
 
     def _save_credentials(self) -> None:
-        """Save credential metadata to local state."""
-        self.credentials_file.write_text(json.dumps(self._credentials, indent=2))
+        """Persist metadata only (mode 0600); Vault tokens stay in memory."""
+        write_credential_state(self.credentials_file, self._credentials)
 
     def _vault_read(self, path: str) -> dict[str, Any]:
         """Execute `vault read -format=json <path>` and return parsed result.
@@ -202,6 +203,7 @@ class VaultBackend(SecretsBroker):
                 "_vault_lease_id": lease_id,
             }
             self._save_credentials()
+            register_minted_secret(token_value)
 
             return credential
 
@@ -240,8 +242,12 @@ class VaultBackend(SecretsBroker):
         if cred.status == SecretStatus.REVOKED:
             raise ValueError(f"Credential {credential_id} has been revoked")
 
-        # Inject the secret
-        secret_value = data["_secret_value"]
+        secret_value = data.get("_secret_value")
+        if secret_value is None:
+            raise ValueError(
+                f"Credential {credential_id} was minted by an earlier process and its token "
+                "is not held here; mint a new credential"
+            )
         env_var_name = self._env_var_for_tool(cred.tool_name)
         env[env_var_name] = secret_value
         env["FACTORY_CREDENTIAL_ID"] = credential_id

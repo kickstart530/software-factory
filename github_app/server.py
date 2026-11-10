@@ -53,9 +53,8 @@ def main():
     """Start the webhook receiver server."""
     webhook_secret = os.getenv("GITHUB_WEBHOOK_SECRET")
     if not webhook_secret:
-        logger.warning(
-            "GITHUB_WEBHOOK_SECRET not set, using default (INSECURE for development only)"
-        )
+        logger.error("GITHUB_WEBHOOK_SECRET is not set; refusing to start")
+        sys.exit(2)
 
     port = int(os.getenv("PORT", "8080"))
 

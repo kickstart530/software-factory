@@ -103,9 +103,18 @@ def make_stubbed_tool(name: str, description: str, tool_results: dict[str, str])
 class ReplayRunner:
     """Run golden tasks through the harness with replayed model responses."""
 
-    def __init__(self, workspace_root: Path, artifacts_root: Path):
+    def __init__(
+        self,
+        workspace_root: Path,
+        artifacts_root: Path,
+        spec_overrides: dict[str, dict[str, Any]] | None = None,
+    ):
+        """``spec_overrides``: agent name -> AgentSpec fields to change on the golden
+        task's recorded spec (e.g. a candidate's budget). Model responses stay replayed.
+        """
         self.workspace_root = workspace_root
         self.artifacts_root = artifacts_root
+        self.spec_overrides = spec_overrides or {}
         self.model_config = ModelConfig.model_validate(
             {
                 "tiers": {
@@ -143,8 +152,12 @@ class ReplayRunner:
 
         gates = GateRunner({})
 
+        spec = golden.agent_spec
+        if overrides := self.spec_overrides.get(spec.name):
+            spec = spec.model_copy(update=overrides)
+
         harness = AgentHarness(
-            golden.agent_spec,
+            spec,
             "test prompt",
             deps,
             ctx,

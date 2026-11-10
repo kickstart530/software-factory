@@ -11,9 +11,10 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
+from typing import Any
 
 from factory.harness.telemetry import NullTracer, Tracer
-from factory.schemas import TaskDAG, TaskResult, TaskStatus
+from factory.schemas import Task, TaskDAG, TaskResult, TaskStatus
 
 TaskRunner = Callable[..., TaskResult]
 
@@ -26,12 +27,24 @@ class Supervisor:
     heartbeat with checkpoint_id after each harness turn.
     """
 
-    def __init__(self, run_task: TaskRunner, max_parallel: int = 4, tracer: Tracer | None = None):
+    def __init__(
+        self,
+        run_task: TaskRunner,
+        max_parallel: int = 4,
+        tracer: Tracer | None = None,
+        kill_switch: Any | None = None,
+    ):
         if run_task is None:
             raise ValueError("run_task (TaskRunner) is required and must not be None")
         self.run_task = run_task
         self.max_parallel = max_parallel
         self.tracer = tracer or NullTracer()
+        # factory.control.KillSwitch: while paused, no new task starts and tasks the
+        # harness stopped return to PENDING so a later execute() resumes them.
+        self.kill_switch = kill_switch
+
+    def _paused(self, task: Task) -> bool:
+        return self.kill_switch is not None and self.kill_switch.is_paused(task.tenant_id)
 
     def execute(self, dag: TaskDAG) -> dict[str, TaskResult]:
         """Run until every task is terminal or blocked. Mutates task statuses in ``dag``."""
@@ -45,6 +58,8 @@ class Supervisor:
                 for task in dag.ready():
                     if len(running) >= self.max_parallel:
                         break
+                    if self._paused(task):
+                        continue
                     task.status = TaskStatus.RUNNING
                     self.tracer.event("task.started", task_id=task.id, agent=task.agent)
                     running[pool.submit(self.run_task, task)] = task.id
@@ -57,6 +72,10 @@ class Supervisor:
                         result = fut.result()
                     except Exception as e:  # a crashed runner fails its task, not the DAG
                         result = TaskResult(task_id=tid, status=TaskStatus.FAILED, error=repr(e))
+                    if result.status == TaskStatus.CANCELLED and self._paused(tasks[tid]):
+                        tasks[tid].status = TaskStatus.PENDING  # resumable, not dead
+                        self.tracer.event("task.paused", task_id=tid)
+                        continue
                     tasks[tid].status = result.status
                     results[tid] = result
         return results
